@@ -351,7 +351,7 @@
 
   <!-- ================= AI BOT ================= -->
   <div class="screen" id="screen-bot">
-    <h2 class="section-title">FixIt AI Bot</h2>
+    <h2 class="section-title">FixIt Bot</h2>
     <div class="chat-log" id="chat-log"></div>
     <div class="suggest-row" id="chat-suggestions">
       <span class="suggest-chip" onclick="sendSuggestion('My rice cooker won\'t turn on')">Rice cooker won't turn on</span>
@@ -505,7 +505,7 @@
       <button class="chat-send" id="chat-send-btn" onclick="sendChat()">➤</button>
     </div>
     <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelected(event)">
-    <div class="ai-disclaimer">FixIt Bot gives general guidance, not a guarantee. For anything involving mains power, gas, or batteries, bring it to a coach in person.</div>
+    <div class="ai-disclaimer">FixIt Bot matches keywords against common repairs and real iFixit guides -- it's not a live AI chat. For anything involving mains power, gas, or batteries, bring it to a coach in person.</div>
   </div>
 
   <div class="tabbar">
@@ -585,16 +585,55 @@ const TIME_SLOTS = [
   "Thu 6:00 PM", "Thu 6:30 PM", "Sat 10:00 AM", "Sat 10:30 AM",
 ];
 
-const SYSTEM_PROMPT = `You are FixIt Bot, a friendly, encouraging repair-diagnostic assistant inside the FixItFlow app. Your mission is to help people fix household items instead of throwing them away.
+// Canned troubleshooting steps per device category, used by the
+// rule-based FixIt Bot below. These are general, safe starting points --
+// real diagnosis for anything beyond "check the obvious stuff" should
+// come from the linked iFixit guides or a human coach.
+const DEVICE_TIPS = {
+  "rice cooker": [
+    "Check the outlet and cord for damage -- try a different outlet.",
+    "Make sure the inner pot is seated flat and the lid latch is fully closed.",
+    "If it powers on but won't heat, the thermal fuse may have tripped.",
+  ],
+  "vacuum": [
+    "Empty the dust bin or check if the bag is full.",
+    "Check the hose and brush roll for clogs or tangled hair/string.",
+    "Inspect the belt -- a snapped belt is a common cause of no suction.",
+  ],
+  "blender": [
+    "Check that the pitcher is locked in correctly -- most blenders won't run if it's misaligned.",
+    "Look at the drive coupling (the rubber piece under the pitcher) for wear.",
+    "If the motor hums but the blade doesn't spin, the coupling has likely worn out.",
+  ],
+  "toaster": [
+    "Unplug it, then check if the carriage lever physically latches down.",
+    "Crumbs can jam the mechanism -- try turning it upside down and gently shaking it out.",
+    "If it won't stay down at all, the electromagnet that holds it may be dirty or failing.",
+  ],
+  "laptop": [
+    "Try a different outlet and, if possible, a different charger cable.",
+    "Check the charging port for lint or bent pins.",
+    "If it charges only at certain cable angles, the DC jack may have a loose solder joint.",
+  ],
+  "phone": [
+    "Try a different cable and adapter -- cables are the most common failure point.",
+    "Check the charging port for lint (a toothpick works well, gently).",
+    "If the screen is cracked but touch still works, it's often a display-only repair.",
+  ],
+  "zipper": [
+    "If it separates but doesn't snag, the slider is often just worn out and replaceable.",
+    "If it's stuck, try rubbing a pencil (graphite) or a bit of soap along the teeth.",
+    "A missing bottom stop is a common, easy fix with pliers and a new stop.",
+  ],
+};
 
-Guidelines:
-- Ask short clarifying questions if the problem is vague (device type, what it's doing/not doing, any sounds/smells/error lights).
-- Give concrete, step-by-step troubleshooting grounded in common repair knowledge for household items (rice cookers, vacuums, blenders, toasters, zippers/textiles, laptops, phones, and similar).
-- Keep replies concise -- under about 120 words -- and easy to follow for someone with no repair experience.
-- For anything involving mains-voltage electrical work beyond unplugging the item, gas appliances, swollen or damaged lithium batteries, or other real safety risk, tell them to stop and bring it to a Repair Café coach in person rather than doing it themselves.
-- When it fits naturally, mention they can register for a free local Repair Café event (Events tab) or book a 1-on-1 coach (Coach tab) in the app for hands-on help.
-- Users may attach a photo of the broken item. Use visible details in the photo (brand, model, visible damage, corrosion, frayed wires, cracks, etc.) to inform your diagnosis and mention what you can see.
-- Stay warm and encouraging about repair and reuse, but don't be preachy about it.`;
+function lookupDeviceTips(query) {
+  const q = query.toLowerCase();
+  for (const [keyword, tips] of Object.entries(DEVICE_TIPS)) {
+    if (q.includes(keyword)) return { keyword, tips };
+  }
+  return null;
+}
 
 /* =========================================================
    STORAGE HELPERS (real backend now, via /api/storage --
@@ -656,19 +695,11 @@ function goTab(name) {
   const screenEl = document.getElementById("screen-" + name);
   if (screenEl) screenEl.scrollTop = 0;
 
-  // The chat footer (input bar) only makes sense on the bot tab -- show
-  // or hide it, then recompute how much bottom padding #screen-bot needs
-  // so the footer never overlaps the last message in the log.
   const footer = document.getElementById("chat-footer");
   footer.style.display = name === "bot" ? "block" : "none";
   if (name === "bot") layoutChatFooter();
 }
 
-// Measures the real, current height of the fixed tab bar and chat
-// footer, then positions the footer directly above the tab bar and
-// gives #screen-bot enough padding-bottom to scroll fully clear of
-// both. Re-run whenever the footer's height can change (photo preview
-// shown/hidden, window resized) so the reserved space stays accurate.
 function layoutChatFooter() {
   const tabbar = document.querySelector(".tabbar");
   const footer = document.getElementById("chat-footer");
@@ -703,14 +734,12 @@ async function renderHome() {
 }
 
 /* =========================================================
-   AI BOT (real Claude API call, grounded with real iFixit +
-   Open Repair Alliance data)
+   FIXIT BOT (rule-based -- keyword matching, real iFixit
+   guide search, real Open Repair Alliance stats. No live
+   AI/LLM call, no API key, no cost, ever.)
    ========================================================= */
-let chatHistory = [];
-let pendingImage = null; // { dataUrl, base64, mediaType } or null
+let pendingImage = null;
 
-// Resizes/compresses a photo client-side before sending, so phone photos
-// (often 3000px+) don't bloat the API payload. Always outputs JPEG.
 function resizeImageFile(file, maxDim = 1024, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -735,7 +764,7 @@ function resizeImageFile(file, maxDim = 1024, quality = 0.85) {
 
 async function handlePhotoSelected(event) {
   const file = event.target.files[0];
-  event.target.value = ""; // allow selecting the same file again later
+  event.target.value = "";
   if (!file) return;
   try {
     const dataUrl = await resizeImageFile(file);
@@ -757,8 +786,6 @@ function clearPendingPhoto() {
   layoutChatFooter();
 }
 
-// Calls our own backend, which proxies to iFixit's public search API
-// server-side (avoids any browser CORS issues entirely).
 async function fetchIfixitGuides(query) {
   try {
     const resp = await fetch(`/api/ifixit-search?q=${encodeURIComponent(query)}`);
@@ -803,7 +830,7 @@ function renderBubble(role, text, imageDataUrl) {
 }
 
 function initChat() {
-  renderBubble("bot", "Hi! I'm FixIt Bot. Tell me what's broken and what it's doing, and I'll help you figure out what's wrong.");
+  renderBubble("bot", "Hi! I'm FixIt Bot. Tell me what's broken (e.g. \"rice cooker\" or \"vacuum\") and I'll pull up tips, real repair guides, and community success rates.");
 }
 
 function sendSuggestion(text) {
@@ -814,117 +841,72 @@ function sendSuggestion(text) {
 async function sendChat() {
   const input = document.getElementById("chat-input");
   const text = input.value.trim();
-  const photo = pendingImage; // snapshot before clearing
+  const photo = pendingImage;
   if (!text && !photo) return;
 
   input.value = "";
   clearPendingPhoto();
   document.getElementById("chat-suggestions").style.display = "none";
 
-  const captionText = text || "What's wrong with this item?";
   renderBubble("user", text, photo ? photo.dataUrl : null);
-
-  // Build the content block for this turn. If there's a photo, content
-  // must be an array (image block + text block) per the Anthropic API's
-  // multimodal message format; text-only turns stay a plain string.
-  const userContent = photo
-    ? [
-        { type: "image", source: { type: "base64", media_type: photo.mediaType, data: photo.base64 } },
-        { type: "text", text: captionText },
-      ]
-    : text;
-  chatHistory.push({ role: "user", content: userContent });
 
   const sendBtn = document.getElementById("chat-send-btn");
   sendBtn.disabled = true;
-  const typingBubble = renderBubble("bot", "FixIt Bot is thinking...");
+  const typingBubble = renderBubble("bot", "Looking that up...");
   typingBubble.classList.add("typing");
 
-  // Ground the model's answer with real data: live iFixit guide search,
-  // plus a real repair-success rate from the Open Repair Alliance
-  // dataset if the device matches one we have stats for. Both are
-  // appended only to the API payload, not to what's shown in the
-  // user's own chat bubble above. Skipped when there's no caption text
-  // to search on (photo with no description).
-  let ifixitGuides = [];
-  let stat = null;
-  if (text) {
-    [ifixitGuides, stat] = await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))]);
-  }
+  const [ifixitGuides, stat] = text
+    ? await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))])
+    : [[], null];
+  const deviceMatch = text ? lookupDeviceTips(text) : null;
 
-  let groundingNote = "";
-  if (ifixitGuides.length) {
-    groundingNote += "\n\n[Real iFixit guides found for this: " +
-      ifixitGuides.map(g => `"${g.title}" (${g.url})`).join("; ") +
-      ". Mention the most relevant one by name and link if it fits naturally.]";
-  }
-  if (stat) {
-    groundingNote += `\n\n[Real data point: in the Open Repair Alliance's community dataset, ${stat.label} repairs at community events succeed ${stat.overall}% of the time (n=${stat.overallN}). You can mention this stat if it's encouraging or relevant, but don't force it in.]`;
-  }
+  typingBubble.remove();
 
-  // Re-attach the grounding note to just this turn's payload without
-  // mutating what's stored in chatHistory (so future turns don't
-  // accumulate stale notes).
-  let apiLastContent = userContent;
-  if (groundingNote) {
-    apiLastContent = photo
-      ? [userContent[0], { type: "text", text: captionText + groundingNote }]
-      : text + groundingNote;
-  }
-  const apiMessages = chatHistory.slice(0, -1).concat([{ role: "user", content: apiLastContent }]);
-
-  try {
-    // Calls our own backend, which holds the real Anthropic API key
-    // server-side and forwards the request -- the browser never sees
-    // the key, unlike the artifact version which called Claude directly.
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system: SYSTEM_PROMPT,
-        messages: apiMessages,
-      }),
-    });
-    const data = await response.json();
-    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text);
-    const reply = textBlocks.join("\n").trim() || "Sorry, I didn't catch that -- could you try rephrasing?";
-
-    typingBubble.remove();
-    renderBubble("bot", reply);
-    chatHistory.push({ role: "assistant", content: reply });
-
-    if (ifixitGuides.length) {
-      const log = document.getElementById("chat-log");
-      const linkRow = document.createElement("div");
-      linkRow.className = "suggest-row";
-      linkRow.style.marginTop = "-4px";
-      ifixitGuides.slice(0, 2).forEach(g => {
-        const a = document.createElement("a");
-        a.href = g.url; a.target = "_blank"; a.rel = "noopener";
-        a.className = "suggest-chip";
-        a.style.textDecoration = "none";
-        a.textContent = "🔗 " + g.title;
-        linkRow.appendChild(a);
-      });
-      log.appendChild(linkRow);
+  let reply;
+  if (photo && !text) {
+    reply = "I can see you attached a photo, but I can't analyze images myself -- could you describe what's wrong in a sentence or two? That'll help me point you to the right tips.";
+  } else if (deviceMatch) {
+    reply = `Here's what usually causes this with a ${deviceMatch.keyword}:\n\n` +
+      deviceMatch.tips.map((t, i) => `${i + 1}. ${t}`).join("\n");
+    if (stat) {
+      reply += `\n\nFor context: ${stat.overall}% of ${stat.label.toLowerCase()} repairs at real community events succeed, based on the Open Repair Alliance's dataset.`;
     }
-  } catch (err) {
-    typingBubble.remove();
-    renderBubble("bot", "I'm having trouble connecting right now. In the meantime, try the Events tab to find a Repair Café coach who can help in person.");
-  } finally {
-    sendBtn.disabled = false;
+    reply += "\n\nIf that doesn't get you there, a free Repair Café or a 1-on-1 coach can help hands-on -- check the Events or Coach tab.";
+  } else {
+    reply = "I don't have specific tips for that yet, but here's what I'd try: check the power/battery connection first, then look for anything visibly loose, cracked, or disconnected.";
+    if (ifixitGuides.length) {
+      reply += " I did find some real repair guides that might match below.";
+    } else {
+      reply += " For anything trickier, a free Repair Café or a 1-on-1 coach can take a real look -- check the Events or Coach tab.";
+    }
   }
+
+  renderBubble("bot", reply);
+
+  if (ifixitGuides.length) {
+    const log = document.getElementById("chat-log");
+    const linkRow = document.createElement("div");
+    linkRow.className = "suggest-row";
+    linkRow.style.marginTop = "-4px";
+    ifixitGuides.slice(0, 2).forEach(g => {
+      const a = document.createElement("a");
+      a.href = g.url; a.target = "_blank"; a.rel = "noopener";
+      a.className = "suggest-chip";
+      a.style.textDecoration = "none";
+      a.textContent = "🔗 " + g.title;
+      linkRow.appendChild(a);
+    });
+    log.appendChild(linkRow);
+  }
+
+  sendBtn.disabled = false;
 }
 
 /* =========================================================
    EVENTS
    ========================================================= */
-let userDistances = null; // { eventId: miles } after a successful address search
+let userDistances = null;
 
-// Calls our own backend, which proxies to OpenStreetMap's Nominatim
-// geocoder server-side (also lets the server set a proper User-Agent
-// header, which Nominatim's usage policy asks for and a browser can't
-// set on outgoing fetches).
 async function geocodeAddress(address) {
   const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
   if (!resp.ok) throw new Error("Geocoding request failed");
@@ -932,7 +914,6 @@ async function geocodeAddress(address) {
   return { lat: data.lat, lng: data.lng };
 }
 
-// Haversine distance in miles between two lat/lng points.
 function distanceMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.8;
   const toRad = d => (d * Math.PI) / 180;
@@ -1206,7 +1187,6 @@ async function bookCoach() {
   const coach = roster.find(c => c.id === selectedCoachId);
   if (!coach) { showToast("That coach is no longer available"); return; }
 
-  // Reserve the slot in shared storage so no one else can double-book it.
   const booked = await storageGet("coaches:booked", true, []);
   booked.push({ coachId: coach.id, slot: selectedSlot, ts: Date.now() });
   await storageSet("coaches:booked", booked, true);
@@ -1229,7 +1209,6 @@ async function bookCoach() {
   renderMyBookings();
 }
 
-/* -------- adding a new coach to the shared roster -------- */
 function renderNewCoachSlots() {
   const wrap = document.getElementById("new-coach-slots");
   wrap.innerHTML = "";
@@ -1329,9 +1308,6 @@ window.addEventListener("DOMContentLoaded", () => {
   renderMyBookings();
   renderDonations();
 
-  // Register the service worker for offline resilience + installability.
-  // Safe to no-op if unsupported (older browsers) or if served over
-  // plain HTTP in local dev (service workers require HTTPS or localhost).
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => {
       console.warn("Service worker registration failed:", err);
