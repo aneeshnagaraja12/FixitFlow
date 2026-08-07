@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<title>FixItFlow</title>
+
+<!-- PWA: makes "Add to Home Screen" give a real icon + full-screen launch -->
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<meta name="theme-color" content="#b5502f">
+
+<!-- iOS-specific: without these, Safari's Add to Home Screen uses a
+     screenshot as the icon and still shows the browser chrome -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FixItFlow">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-180.png') }}">
+
+<link rel="icon" href="{{ url_for('static', filename='icon-192.png') }}">
+<style>
+  :root {
+    --rust: #b5502f;
+    --rust-deep: #8a3b21;
+    --rust-bg: #fdf3ec;
+    --green: #1f6b3a;
+    --green-deep: #154f2b;
+    --green-bg: #eaf5ee;
+    --paper: #f6f2ea;
+    --card: #ffffff;
+    --ink: #251f19;
+    --muted: #6b6055;
+    --border: #e6ddd0;
+    --steel: #4a5960;
+    --steel-bg: #eef1f2;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #ded6c4;
+    color: var(--ink);
+  }
+  body { display: flex; justify-content: center; }
+
+  .phone {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* ---------- top app bar ---------- */
+  .topbar {
+    padding: 18px 20px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--paper);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .topbar .icon { font-size: 1.3rem; }
+  .topbar h1 { font-size: 1.15rem; margin: 0; font-weight: 800; letter-spacing: -0.01em; }
+  .topbar h1 span { color: var(--rust); }
+
+  /* ---------- screens ---------- */
+  .screen { display: none; flex: 1; padding: 0 18px 100px; overflow-y: auto; }
+  .screen.active { display: block; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  h2.section-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 700;
+    margin: 4px 0 10px;
+  }
+
+  /* ---------- HOME ---------- */
+  .hero {
+    background: linear-gradient(160deg, var(--green-deep), var(--green));
+    color: #fff;
+    border-radius: 18px;
+    padding: 28px 22px;
+    margin: 6px 0 18px;
+  }
+  .hero .hero-name { font-size: 1.6rem; font-weight: 800; margin-bottom: 6px; letter-spacing: -0.01em; }
+  .hero .hero-mission { font-size: 0.95rem; line-height: 1.5; opacity: 0.94; }
+  .stat-strip { display: flex; gap: 10px; margin-top: 18px; }
+  .stat-chip { flex: 1; background: rgba(255,255,255,0.14); border-radius: 10px; padding: 10px 8px; text-align: center; }
+  .stat-chip .n { font-size: 1.15rem; font-weight: 800; }
+  .stat-chip .l { font-size: 0.65rem; opacity: 0.85; margin-top: 2px; }
+
+  .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .quick-tile {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 14px; cursor: pointer; text-align: left;
+  }
+  .quick-tile .qi { font-size: 1.5rem; margin-bottom: 8px; display: block; }
+  .quick-tile .qt { font-weight: 700; font-size: 0.88rem; margin-bottom: 2px; }
+  .quick-tile .qd { font-size: 0.74rem; color: var(--muted); line-height: 1.3; }
+
+  /* ---------- CHAT / AI BOT ---------- */
+  .chat-log { display: flex; flex-direction: column; gap: 10px; padding: 14px 0 10px; }
+  .bubble { max-width: 84%; padding: 11px 14px; border-radius: 14px; font-size: 0.88rem; line-height: 1.45; }
+  .bubble.bot { background: var(--card); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .bubble.user { background: var(--rust); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .bubble.typing { color: var(--muted); font-style: italic; }
+  .suggest-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+  .suggest-chip {
+    background: var(--rust-bg); color: var(--rust-deep); border: 1px solid #f0d7c9;
+    padding: 6px 11px; border-radius: 999px; font-size: 0.76rem; cursor: pointer;
+  }
+  .chat-input-row {
+    display: flex; gap: 8px; padding-top: 4px;
+  }
+  .chat-input-row input {
+    flex: 1; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 999px; font-size: 0.9rem;
+  }
+  .chat-input-row input:focus { outline: none; border-color: var(--rust); }
+  .chat-camera {
+    background: var(--card); border: 1.5px solid var(--border); color: var(--rust-deep);
+    border-radius: 50%; width: 42px; height: 42px; font-size: 1.1rem; cursor: pointer; flex-shrink: 0;
+  }
+  .chat-camera:hover { border-color: var(--rust); }
+  .photo-preview-strip { display: none; }
+  .photo-preview { position: relative; width: 72px; height: 72px; margin: 6px 0 2px; }
+  .photo-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 1.5px solid var(--border); }
+  .photo-remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--ink); color: #fff; border: none; font-size: 0.7rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .bubble-img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 10px; display: block; }
+  .bubble-img + div { margin-top: 8px; }
+  .chat-send { background: var(--rust); color: #fff; border: none; border-radius: 50%; width: 42px; height: 42px; font-size: 1.1rem; cursor: pointer; flex-shrink: 0; }
+  .chat-send:disabled { opacity: 0.5; }
+  .ai-disclaimer { font-size: 0.68rem; color: var(--muted); text-align: center; margin-top: 8px; }
+  .chat-footer {
+    display: none;
+    position: fixed;
+    left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 430px;
+    background: var(--paper);
+    padding: 8px 18px 6px;
+    z-index: 8;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ---------- EVENTS ---------- */
+  .event-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+  .event-name { font-weight: 700; font-size: 0.94rem; margin-bottom: 3px; }
+  .event-meta { font-size: 0.79rem; color: var(--muted); margin-bottom: 2px; }
+  .event-notes { font-size: 0.76rem; color: var(--steel); background: var(--steel-bg); display: inline-block; padding: 3px 9px; border-radius: 6px; margin-top: 8px; }
+  .event-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .spots { font-size: 0.74rem; font-weight: 700; }
+  .spots.ok { color: var(--green); }
+  .spots.low { color: var(--rust-deep); }
+  .spots.full { color: #a33; }
+  .rsvp-btn {
+    border: 1.5px solid var(--rust); background: #fff; color: var(--rust-deep);
+    font-size: 0.78rem; font-weight: 700; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  }
+  .rsvp-btn.going { background: var(--rust); color: #fff; }
+  .nearest-status { font-size: 0.78rem; color: var(--muted); margin-top: 8px; min-height: 1em; }
+  .nearest-status.error { color: #a33; }
+  .distance-badge {
+    display: inline-block; font-size: 0.72rem; font-weight: 700; color: var(--rust-deep);
+    background: var(--rust-bg); padding: 2px 9px; border-radius: 999px; margin-bottom: 8px;
+  }
+  .event-card.nearest { border-color: var(--rust); box-shadow: 0 0 0 1px var(--rust); }
+  .coach-card {
+    border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+  }
+  .coach-card.selected { border-color: var(--rust); background: var(--rust-bg); }
+  .coach-card .cc-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .coach-card .cc-name { font-weight: 700; font-size: 0.9rem; }
+  .coach-card .cc-spec { font-size: 0.7rem; font-weight: 700; color: var(--green-deep); background: var(--green-bg); padding: 2px 8px; border-radius: 999px; }
+  .coach-card .cc-bio { font-size: 0.78rem; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+  .coach-card .cc-slots { font-size: 0.7rem; color: var(--muted); margin-top: 6px; }
+  .mailto-link {
+    display: block; text-align: center; margin-top: 10px; background: var(--steel-bg); color: var(--steel);
+    text-decoration: none; font-weight: 700; font-size: 0.8rem; padding: 9px; border-radius: 8px;
+  }
+
+  /* ---------- floating action button + bottom sheets ---------- */
+  .fab-btn {
+    display: block; width: calc(100% - 36px); margin: 4px 18px 12px;
+    background: var(--rust); color: #fff; border: none; border-radius: 999px;
+    padding: 13px; font-weight: 700; font-size: 0.88rem; cursor: pointer;
+    box-shadow: 0 8px 20px -8px rgba(181,80,47,0.5);
+  }
+  .fab-btn:hover { background: var(--rust-deep); }
+
+  .sheet-backdrop {
+    position: fixed; inset: 0; background: rgba(20,16,12,0.45);
+    opacity: 0; pointer-events: none; transition: opacity 0.25s ease; z-index: 20;
+  }
+  .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+
+  .bottom-sheet {
+    position: fixed; left: 50%; bottom: 0; transform: translateX(-50%) translateY(100%);
+    width: 100%; max-width: 430px; max-height: 82vh; overflow-y: auto;
+    background: var(--paper); border-radius: 22px 22px 0 0;
+    padding: 10px 18px calc(28px + env(safe-area-inset-bottom));
+    box-shadow: 0 -10px 30px -12px rgba(0,0,0,0.3);
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    z-index: 21;
+  }
+  .bottom-sheet.open { transform: translateX(-50%) translateY(0); }
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--border); border-radius: 999px;
+    margin: 6px auto 16px;
+  }
+
+  /* ---------- IMPACT ---------- */
+  .impact-hero { background: linear-gradient(160deg, var(--green-deep), var(--green)); color: #fff; border-radius: 18px; padding: 24px 20px; margin: 6px 0 16px; }
+  .impact-hero .big-num { font-size: 2.1rem; font-weight: 800; }
+  .impact-hero .big-label { font-size: 0.8rem; opacity: 0.9; margin-bottom: 14px; }
+  .impact-grid { display: flex; gap: 10px; }
+  .impact-mini { flex: 1; background: rgba(255,255,255,0.14); border-radius: 10px; padding: 10px; text-align: center; }
+  .impact-mini .n { font-weight: 800; font-size: 1.05rem; }
+  .impact-mini .l { font-size: 0.64rem; opacity: 0.85; }
+  .log-fix-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 12px; }
+  .device-chip { background: var(--green-bg); color: var(--green-deep); border: 1px solid #cfe8d6; padding: 7px 12px; border-radius: 999px; font-size: 0.8rem; cursor: pointer; }
+  .device-chip.selected { background: var(--green); color: #fff; }
+  .log-btn { width: 100%; background: var(--green); color: #fff; border: none; padding: 12px; border-radius: 10px; font-weight: 700; font-size: 0.9rem; cursor: pointer; }
+  .log-btn:disabled { opacity: 0.5; }
+  .feed-item { display: flex; justify-content: space-between; font-size: 0.83rem; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .feed-item:last-child { border-bottom: none; }
+  .feed-item .fd { color: var(--muted); }
+  .feed-item .fv { font-weight: 700; color: var(--green-deep); }
+  .stat-line { margin-bottom: 12px; }
+  .stat-line-top { display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 4px; }
+  .stat-line-top .sl-name { font-weight: 600; }
+  .stat-line-top .sl-pct { font-weight: 700; color: var(--green-deep); }
+  .stat-bar-bg { background: var(--steel-bg); border-radius: 999px; height: 7px; overflow: hidden; }
+  .stat-bar-fill { background: var(--green); height: 100%; border-radius: 999px; }
+  .stat-line-n { font-size: 0.68rem; color: var(--muted); margin-top: 3px; }
+
+  /* ---------- COACH ---------- */
+  .coach-option { display: flex; align-items: center; gap: 10px; border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+  .coach-option.selected { border-color: var(--rust); background: var(--rust-bg); }
+  .coach-option .co-name { font-weight: 700; font-size: 0.88rem; }
+  .coach-option .co-desc { font-size: 0.76rem; color: var(--muted); margin-top: 1px; }
+  .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 14px; }
+  .slot-btn { border: 1.5px solid var(--border); background: #fff; padding: 10px; border-radius: 8px; font-size: 0.8rem; cursor: pointer; text-align: center; }
+  .slot-btn.selected { border-color: var(--rust); background: var(--rust-bg); color: var(--rust-deep); font-weight: 700; }
+  label.f { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 5px; }
+  input[type=text].f-input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 0.9rem; margin-bottom: 14px; }
+  input[type=text].f-input:focus { outline: none; border-color: var(--rust); }
+  .book-btn { width: 100%; background: var(--rust); color: #fff; border: none; padding: 12px; border-radius: 10px; font-weight: 700; font-size: 0.9rem; cursor: pointer; }
+  .book-btn:disabled { opacity: 0.5; }
+  .booking-item { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+  .booking-item:last-child { border-bottom: none; }
+  .booking-item .bi-top { font-weight: 700; }
+  .booking-item .bi-sub { color: var(--muted); font-size: 0.78rem; }
+
+  /* ---------- DONATE ---------- */
+  .listing-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .listing-cat { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; color: var(--green-deep); background: var(--green-bg); display: inline-block; padding: 2px 8px; border-radius: 5px; margin-bottom: 6px; }
+  .listing-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 3px; }
+  .listing-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.4; margin-bottom: 6px; }
+  .listing-loc { font-size: 0.74rem; color: var(--steel); }
+  select.f-input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 0.9rem; margin-bottom: 14px; background: #fff; }
+  .donate-btn { width: 100%; background: var(--green); color: #fff; border: none; padding: 12px; border-radius: 10px; font-weight: 700; font-size: 0.9rem; cursor: pointer; margin-bottom: 6px; }
+  .donate-btn:disabled { opacity: 0.5; }
+  .empty-note { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 20px 10px; }
+
+  /* ---------- bottom tab bar ---------- */
+  .tabbar {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 430px;
+    background: #fff; border-top: 1px solid var(--border);
+    display: flex; padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
+    z-index: 10;
+  }
+  .tab-btn {
+    flex: 1; background: none; border: none; display: flex; flex-direction: column;
+    align-items: center; gap: 3px; padding: 4px 2px; cursor: pointer; color: var(--muted);
+  }
+  .tab-btn .ti { font-size: 1.25rem; }
+  .tab-btn .tl { font-size: 0.6rem; font-weight: 600; }
+  .tab-btn.active { color: var(--rust); }
+
+  .toast {
+    position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 999px;
+    font-size: 0.82rem; opacity: 0; transition: all 0.25s ease; pointer-events: none; z-index: 20;
+    max-width: 380px; text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <div class="topbar">
+    <span class="icon">⚙️</span>
+    <h1>Fix<span>It</span>Flow</h1>
+  </div>
+
+  <!-- ================= HOME ================= -->
+  <div class="screen active" id="screen-home">
+    <div class="hero">
+      <div class="hero-name">FixItFlow</div>
+      <div class="hero-mission">Keeping things out of the landfill, one repair at a time. Diagnose it, get matched with help, and see the difference your fix makes.</div>
+      <div class="stat-strip" id="home-stats">
+        <div class="stat-chip"><div class="n" id="home-stat-repairs">–</div><div class="l">fixes logged</div></div>
+        <div class="stat-chip"><div class="n" id="home-stat-weight">–</div><div class="l">kg saved</div></div>
+        <div class="stat-chip"><div class="n" id="home-stat-co2">–</div><div class="l">kg CO2 avoided</div></div>
+      </div>
+    </div>
+
+    <h2 class="section-title">Get started</h2>
+    <div class="quick-grid">
+      <div class="quick-tile" onclick="goTab('bot')">
+        <span class="qi">🤖</span>
+        <div class="qt">Ask FixIt Bot</div>
+        <div class="qd">Diagnose what's broken</div>
+      </div>
+      <div class="quick-tile" onclick="goTab('events')">
+        <span class="qi">📅</span>
+        <div class="qt">Free Repair Events</div>
+        <div class="qd">Find a clinic near you</div>
+      </div>
+      <div class="quick-tile" onclick="goTab('coach')">
+        <span class="qi">🧑‍🔧</span>
+        <div class="qt">1x1 Coach</div>
+        <div class="qd">Book personal help</div>
+      </div>
+      <div class="quick-tile" onclick="goTab('donate')">
+        <span class="qi">🎁</span>
+        <div class="qt">Spare Parts</div>
+        <div class="qd">Donate or find parts</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= AI BOT ================= -->
+  <div class="screen" id="screen-bot">
+    <h2 class="section-title">FixIt AI Bot</h2>
+    <div class="chat-log" id="chat-log"></div>
+    <div class="suggest-row" id="chat-suggestions">
+      <span class="suggest-chip" onclick="sendSuggestion('My rice cooker won\'t turn on')">Rice cooker won't turn on</span>
+      <span class="suggest-chip" onclick="sendSuggestion('My vacuum lost suction')">Vacuum lost suction</span>
+      <span class="suggest-chip" onclick="sendSuggestion('My jacket zipper is stuck')">Zipper stuck</span>
+      <span class="suggest-chip" onclick="sendSuggestion('My laptop won\'t charge')">Laptop won't charge</span>
+    </div>
+  </div>
+
+
+  <!-- ================= EVENTS ================= -->
+  <div class="screen" id="screen-events">
+    <h2 class="section-title">Free repair events near you</h2>
+    <div class="card">
+      <label class="f">Find the closest one to you</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" class="f-input" id="address-input" placeholder="Enter your address" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
+        <button class="rsvp-btn" style="flex-shrink:0; padding:0 16px;" onclick="findNearest()" id="find-nearest-btn">Find</button>
+      </div>
+      <div id="nearest-status" class="nearest-status"></div>
+    </div>
+    <div id="events-list"></div>
+  </div>
+
+  <!-- ================= IMPACT ================= -->
+  <div class="screen" id="screen-impact">
+    <div class="impact-hero">
+      <div class="big-num" id="impact-repairs">–</div>
+      <div class="big-label">community fixes logged</div>
+      <div class="impact-grid">
+        <div class="impact-mini"><div class="n" id="impact-weight">–</div><div class="l">kg kept from landfill</div></div>
+        <div class="impact-mini"><div class="n" id="impact-co2">–</div><div class="l">kg CO2 avoided</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title" style="margin-top:0;">Log a fix you just made</h2>
+      <div class="log-fix-chips" id="log-fix-chips"></div>
+      <button class="log-btn" id="log-fix-btn" disabled onclick="logFix()">✅ Log this fix</button>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title" style="margin-top:0;">Recent community fixes</h2>
+      <div id="impact-feed"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title" style="margin-top:0;">Real repair success rates</h2>
+      <div id="success-stats"></div>
+      <p class="empty-note" style="padding:10px 0 0; text-align:left; font-size:0.7rem;">Source: Open Repair Alliance community dataset, 305,649 real repair records from repair groups worldwide including Fixit Clinic. <a href="https://openrepair.org" target="_blank" rel="noopener" style="color:var(--green-deep);">openrepair.org</a></p>
+    </div>
+  </div>
+
+  <!-- ================= COACH ================= -->
+  <div class="screen" id="screen-coach">
+    <h2 class="section-title">Book a 1x1 FixIt Coach</h2>
+
+    <div class="card">
+      <label class="f">Choose a coach</label>
+      <div id="coach-roster"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title" style="margin-top:0;">My bookings</h2>
+      <div id="my-bookings"></div>
+    </div>
+
+    <button class="fab-btn" onclick="openSheet('sheet-add-coach')">+ Know someone who could coach?</button>
+  </div>
+
+  <!-- Booking sheet: opens when a coach card is tapped -->
+  <div class="sheet-backdrop" id="sheet-backdrop-booking" onclick="closeSheet('sheet-booking')"></div>
+  <div class="bottom-sheet" id="sheet-booking">
+    <div class="sheet-handle"></div>
+    <h2 class="section-title" id="booking-sheet-title">Book a session</h2>
+    <label class="f">Available time slots</label>
+    <div class="slot-grid" id="slot-grid"></div>
+    <label class="f">What's broken?</label>
+    <input type="text" class="f-input" id="coach-device" placeholder="e.g. Blender won't blend">
+    <label class="f">Your name (optional)</label>
+    <input type="text" class="f-input" id="coach-name" placeholder="Guest">
+    <button class="book-btn" id="coach-book-btn" onclick="bookCoach()">Book session →</button>
+  </div>
+
+  <!-- Add-a-coach sheet -->
+  <div class="sheet-backdrop" id="sheet-backdrop-add-coach" onclick="closeSheet('sheet-add-coach')"></div>
+  <div class="bottom-sheet" id="sheet-add-coach">
+    <div class="sheet-handle"></div>
+    <h2 class="section-title">Know someone who could coach?</h2>
+    <p style="font-size:0.82rem; color:var(--muted); margin:0 0 12px; line-height:1.4;">Add them here so people can book real 1-on-1 sessions with them. This is visible to everyone using the app.</p>
+    <label class="f">Their name</label>
+    <input type="text" class="f-input" id="new-coach-name" placeholder="e.g. Priya S.">
+    <label class="f">Specialty</label>
+    <select class="f-input" id="new-coach-specialty">
+      <option value="Small Appliance">Small Appliance (rice cookers, blenders, toasters, vacuums)</option>
+      <option value="Electronics">Electronics (laptops, phones, batteries)</option>
+      <option value="Textile & Sewing">Textile & Sewing (zippers, seams, patches)</option>
+      <option value="General">General (a bit of everything)</option>
+    </select>
+    <label class="f">Short bio (optional)</label>
+    <input type="text" class="f-input" id="new-coach-bio" placeholder="e.g. Retired electrical engineer, 10 yrs at Repair Café SV">
+    <label class="f">Email (for booking notifications)</label>
+    <input type="text" class="f-input" id="new-coach-email" placeholder="coach@example.com">
+    <label class="f">Which time slots are they generally free?</label>
+    <div class="slot-grid" id="new-coach-slots"></div>
+    <p style="font-size:0.7rem; color:var(--muted); margin:-4px 0 12px;">Their email will be visible to whoever books with them, so they can be notified directly.</p>
+    <button class="book-btn" onclick="addCoach()">Add them as a coach</button>
+  </div>
+
+  <!-- ================= DONATE ================= -->
+  <div class="screen" id="screen-donate">
+    <h2 class="section-title">Donate or find spare parts</h2>
+    <h2 class="section-title">Available now <span style="font-weight:400; text-transform:none; letter-spacing:0;">(shared community listings)</span></h2>
+    <div id="donation-list"></div>
+    <button class="fab-btn" onclick="openSheet('sheet-donate')">+ Post a listing</button>
+  </div>
+
+  <!-- Post-a-listing sheet -->
+  <div class="sheet-backdrop" id="sheet-backdrop-donate" onclick="closeSheet('sheet-donate')"></div>
+  <div class="bottom-sheet" id="sheet-donate">
+    <div class="sheet-handle"></div>
+    <h2 class="section-title">Post a listing</h2>
+    <label class="f">Category</label>
+    <select class="f-input" id="donate-category">
+      <option>Small appliance parts</option>
+      <option>Electronics / cables</option>
+      <option>Textile / sewing</option>
+      <option>Tools</option>
+      <option>Other</option>
+    </select>
+    <label class="f">What are you giving away?</label>
+    <input type="text" class="f-input" id="donate-title" placeholder="e.g. Assorted zipper sliders">
+    <label class="f">Details</label>
+    <input type="text" class="f-input" id="donate-desc" placeholder="Condition, quantity, etc.">
+    <label class="f">General area</label>
+    <input type="text" class="f-input" id="donate-loc" placeholder="e.g. Sunnyvale">
+    <button class="donate-btn" onclick="postDonation()">Post listing</button>
+  </div>
+
+
+  <!-- Fixed footer for the chat input -- only shown while the FixIt Bot
+       tab is active. Kept out of the scrolling .screen so the sticky
+       input bar can never overlap the last message in the chat log;
+       instead #screen-bot gets real padding-bottom sized to match this
+       footer's actual height (see layoutChatFooter()). -->
+  <div class="chat-footer" id="chat-footer">
+    <div id="photo-preview-strip" class="photo-preview-strip"></div>
+    <div class="chat-input-row">
+      <button class="chat-camera" id="chat-camera-btn" onclick="document.getElementById('photo-input').click()">📷</button>
+      <input type="text" id="chat-input" placeholder="Describe what's broken..." onkeydown="if(event.key==='Enter') sendChat()">
+      <button class="chat-send" id="chat-send-btn" onclick="sendChat()">➤</button>
+    </div>
+    <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelected(event)">
+    <div class="ai-disclaimer">FixIt Bot gives general guidance, not a guarantee. For anything involving mains power, gas, or batteries, bring it to a coach in person.</div>
+  </div>
+
+  <div class="tabbar">
+    <button class="tab-btn active" id="tabbtn-home" onclick="goTab('home')"><span class="ti">🏠</span><span class="tl">Home</span></button>
+    <button class="tab-btn" id="tabbtn-bot" onclick="goTab('bot')"><span class="ti">🤖</span><span class="tl">FixIt Bot</span></button>
+    <button class="tab-btn" id="tabbtn-events" onclick="goTab('events')"><span class="ti">📅</span><span class="tl">Events</span></button>
+    <button class="tab-btn" id="tabbtn-impact" onclick="goTab('impact')"><span class="ti">♻️</span><span class="tl">Impact</span></button>
+    <button class="tab-btn" id="tabbtn-coach" onclick="goTab('coach')"><span class="ti">🧑‍🔧</span><span class="tl">Coach</span></button>
+    <button class="tab-btn" id="tabbtn-donate" onclick="goTab('donate')"><span class="ti">🎁</span><span class="tl">Donate</span></button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* =========================================================
+   DATA
+   ========================================================= */
+
+// Real upcoming Repair Café Silicon Valley events (pulled from
+// repaircafesv.org, early Aug 2026). capacity/registered are
+// illustrative estimates for the demo, not published real numbers.
+// lat/lng are real coordinates for each venue (via Google Places).
+const EVENTS = [
+  { id: "evt-sanjose-aug15-textile", name: "Sustainable Style Exchange & Mending Clinic — Tzu Chi Foundation",
+    location: "2355 Oakland Road, San Jose", lat: 37.40275, lng: -121.903647,
+    date: "2026-08-15", time: "11:00 AM – 3:00 PM",
+    notes: "Textile repairs only — no electronics, appliances, or bikes.", capacity: 30, registered: 22 },
+  { id: "evt-mtnview-aug16", name: "Repair Café Silicon Valley — Mountain View Senior Center",
+    location: "266 Escuela Ave, Mountain View", lat: 37.398749, lng: -122.093955,
+    date: "2026-08-16", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs: electronics, small appliances, textiles.", capacity: 45, registered: 29 },
+  { id: "evt-paloalto-sep24", name: "Repair Café Silicon Valley — Rinconada Library (evening)",
+    location: "1213 Newell Road, Palo Alto", lat: 37.445005, lng: -122.139016,
+    date: "2026-09-24", time: "5:00 PM – 7:00 PM",
+    notes: "Sewing, jewelry, and general repairs — no bikes.", capacity: 25, registered: 9 },
+  { id: "evt-mtnview-sep27", name: "Repair Café Silicon Valley — Hacker Dojo",
+    location: "855 Maude Ave, Mountain View", lat: 37.396254, lng: -122.049074,
+    date: "2026-09-27", time: "11:00 AM – 3:00 PM",
+    notes: "Household items, bikes, and electronics welcome.", capacity: 50, registered: 14 },
+];
+
+// device category -> landfill weight (kg) + embodied CO2 avoided (kg).
+// Ballpark estimates for a student project, not precise LCA figures.
+const DEVICE_IMPACT = {
+  "Rice cooker": { weight: 2.5, co2: 18 },
+  "Vacuum": { weight: 4.5, co2: 35 },
+  "Blender": { weight: 1.8, co2: 15 },
+  "Toaster": { weight: 1.5, co2: 12 },
+  "Laptop": { weight: 2.2, co2: 200 },
+  "Phone": { weight: 0.2, co2: 70 },
+  "Zipper / textile": { weight: 0.6, co2: 8 },
+};
+
+// Real repair success rates computed from the Open Repair Alliance's
+// public dataset (305,649 community repair records, openrepair.org /
+// github.com/openrepair/data, CC BY-SA 4.0). "overall" = across all
+// eight ORA partner orgs; "fixitClinic" = filtered to Fixit Clinic
+// records specifically, since that's one of the orgs named in the
+// original pitch. Rate = Fixed / (Fixed + End of life), i.e. among
+// repairs with a known outcome. Computed August 2026 from the dataset
+// dated July 2025 -- refresh periodically if you want current figures.
+const REPAIR_SUCCESS_STATS = {
+  "Vacuum":                { overall: 71.7, overallN: 20141, fixitClinic: 72.2, fcN: 18 },
+  "Toaster":                { overall: 58.5, overallN: 6574,  fixitClinic: 53.3, fcN: 15 },
+  "Laptop":                 { overall: 78.1, overallN: 8639,  fixitClinic: 76.2, fcN: 21 },
+  "Phone":                  { overall: 78.0, overallN: 3661,  fixitClinic: 55.6, fcN: 9  },
+  "Rice cooker / Blender":  { overall: 62.5, overallN: 11654, fixitClinic: 77.4, fcN: 31 },
+};
+
+// Mock available slots for 1x1 virtual coach sessions -- these run
+// independently of the bi-monthly in-person clinics, filling the gap
+// between events. Used both when someone signs up to coach (which of
+// these are they generally free for) and when someone books a session.
+const TIME_SLOTS = [
+  "Tue 6:00 PM", "Tue 6:30 PM", "Wed 6:00 PM", "Wed 6:30 PM",
+  "Thu 6:00 PM", "Thu 6:30 PM", "Sat 10:00 AM", "Sat 10:30 AM",
+];
+
+const SYSTEM_PROMPT = `You are FixIt Bot, a friendly, encouraging repair-diagnostic assistant inside the FixItFlow app. Your mission is to help people fix household items instead of throwing them away.
+
+Guidelines:
+- Ask short clarifying questions if the problem is vague (device type, what it's doing/not doing, any sounds/smells/error lights).
+- Give concrete, step-by-step troubleshooting grounded in common repair knowledge for household items (rice cookers, vacuums, blenders, toasters, zippers/textiles, laptops, phones, and similar).
+- Keep replies concise -- under about 120 words -- and easy to follow for someone with no repair experience.
+- For anything involving mains-voltage electrical work beyond unplugging the item, gas appliances, swollen or damaged lithium batteries, or other real safety risk, tell them to stop and bring it to a Repair Café coach in person rather than doing it themselves.
+- When it fits naturally, mention they can register for a free local Repair Café event (Events tab) or book a 1-on-1 coach (Coach tab) in the app for hands-on help.
+- Users may attach a photo of the broken item. Use visible details in the photo (brand, model, visible damage, corrosion, frayed wires, cracks, etc.) to inform your diagnosis and mention what you can see.
+- Stay warm and encouraging about repair and reuse, but don't be preachy about it.`;
+
+/* =========================================================
+   STORAGE HELPERS (real backend now, via /api/storage --
+   replaces the Claude-artifact-only window.storage)
+   ========================================================= */
+
+async function storageGet(key, shared, fallback) {
+  try {
+    const res = await fetch(`/api/storage?key=${encodeURIComponent(key)}&shared=${shared}`);
+    if (!res.ok) return fallback; // 404 = key not set yet
+    const data = await res.json();
+    return JSON.parse(data.value);
+  } catch (e) {
+    return fallback;
+  }
+}
+async function storageSet(key, value, shared) {
+  try {
+    await fetch("/api/storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value: JSON.stringify(value), shared }),
+    });
+  } catch (e) {
+    console.error("storage set failed", key, e);
+  }
+}
+
+/* =========================================================
+   TAB NAVIGATION
+   ========================================================= */
+// ---------- generic bottom-sheet open/close ----------
+// Sheet id "sheet-X" pairs with a backdrop id "sheet-backdrop-X" (except
+// the booking sheet, which shares one backdrop -- see closeSheet below).
+function openSheet(sheetId) {
+  const sheet = document.getElementById(sheetId);
+  const backdropId = sheetId === "sheet-booking" ? "sheet-backdrop-booking" : "sheet-backdrop-" + sheetId.replace("sheet-", "");
+  const backdrop = document.getElementById(backdropId);
+  sheet.classList.add("open");
+  if (backdrop) backdrop.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeSheet(sheetId) {
+  const sheet = document.getElementById(sheetId);
+  const backdropId = sheetId === "sheet-booking" ? "sheet-backdrop-booking" : "sheet-backdrop-" + sheetId.replace("sheet-", "");
+  const backdrop = document.getElementById(backdropId);
+  sheet.classList.remove("open");
+  if (backdrop) backdrop.classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function goTab(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("screen-" + name).classList.add("active");
+  document.getElementById("tabbtn-" + name).classList.add("active");
+  document.querySelector(".phone").scrollTop = 0;
+  const screenEl = document.getElementById("screen-" + name);
+  if (screenEl) screenEl.scrollTop = 0;
+
+  // The chat footer (input bar) only makes sense on the bot tab -- show
+  // or hide it, then recompute how much bottom padding #screen-bot needs
+  // so the footer never overlaps the last message in the log.
+  const footer = document.getElementById("chat-footer");
+  footer.style.display = name === "bot" ? "block" : "none";
+  if (name === "bot") layoutChatFooter();
+}
+
+// Measures the real, current height of the fixed tab bar and chat
+// footer, then positions the footer directly above the tab bar and
+// gives #screen-bot enough padding-bottom to scroll fully clear of
+// both. Re-run whenever the footer's height can change (photo preview
+// shown/hidden, window resized) so the reserved space stays accurate.
+function layoutChatFooter() {
+  const tabbar = document.querySelector(".tabbar");
+  const footer = document.getElementById("chat-footer");
+  const screenBot = document.getElementById("screen-bot");
+  if (!tabbar || !footer || !screenBot || footer.style.display === "none") return;
+
+  const tabbarH = tabbar.offsetHeight;
+  footer.style.bottom = tabbarH + "px";
+  const footerH = footer.offsetHeight;
+  screenBot.style.paddingBottom = (footerH + tabbarH + 16) + "px";
+}
+
+window.addEventListener("resize", () => {
+  if (document.getElementById("screen-bot").classList.contains("active")) layoutChatFooter();
+});
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+/* =========================================================
+   HOME
+   ========================================================= */
+async function renderHome() {
+  const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
+  document.getElementById("home-stat-repairs").textContent = totals.total_repairs;
+  document.getElementById("home-stat-weight").textContent = totals.total_weight.toFixed(0);
+  document.getElementById("home-stat-co2").textContent = totals.total_co2.toFixed(0);
+}
+
+/* =========================================================
+   AI BOT (real Claude API call, grounded with real iFixit +
+   Open Repair Alliance data)
+   ========================================================= */
+let chatHistory = [];
+let pendingImage = null; // { dataUrl, base64, mediaType } or null
+
+// Resizes/compresses a photo client-side before sending, so phone photos
+// (often 3000px+) don't bloat the API payload. Always outputs JPEG.
+function resizeImageFile(file, maxDim = 1024, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height = Math.round(height * (maxDim / width)); width = maxDim; }
+        else if (height > maxDim) { width = Math.round(width * (maxDim / height)); height = maxDim; }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("Couldn't read that image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Couldn't read that file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handlePhotoSelected(event) {
+  const file = event.target.files[0];
+  event.target.value = ""; // allow selecting the same file again later
+  if (!file) return;
+  try {
+    const dataUrl = await resizeImageFile(file);
+    pendingImage = { dataUrl, base64: dataUrl.split(",")[1], mediaType: "image/jpeg" };
+    const strip = document.getElementById("photo-preview-strip");
+    strip.innerHTML = `<div class="photo-preview"><img src="${dataUrl}"><button class="photo-remove" onclick="clearPendingPhoto()">✕</button></div>`;
+    strip.style.display = "block";
+    layoutChatFooter();
+  } catch (e) {
+    showToast("Couldn't load that photo — try again");
+  }
+}
+
+function clearPendingPhoto() {
+  pendingImage = null;
+  const strip = document.getElementById("photo-preview-strip");
+  strip.innerHTML = "";
+  strip.style.display = "none";
+  layoutChatFooter();
+}
+
+// Calls our own backend, which proxies to iFixit's public search API
+// server-side (avoids any browser CORS issues entirely).
+async function fetchIfixitGuides(query) {
+  try {
+    const resp = await fetch(`/api/ifixit-search?q=${encodeURIComponent(query)}`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return (data.results || []).filter(g => g.title && g.url);
+  } catch (e) {
+    return [];
+  }
+}
+
+function lookupSuccessStat(query) {
+  const q = query.toLowerCase();
+  const keywordMap = {
+    "vacuum": "Vacuum", "toaster": "Toaster", "laptop": "Laptop",
+    "phone": "Phone", "rice cooker": "Rice cooker / Blender", "blender": "Rice cooker / Blender",
+  };
+  for (const [kw, label] of Object.entries(keywordMap)) {
+    if (q.includes(kw)) return { label, ...REPAIR_SUCCESS_STATS[label] };
+  }
+  return null;
+}
+
+function renderBubble(role, text, imageDataUrl) {
+  const log = document.getElementById("chat-log");
+  const div = document.createElement("div");
+  div.className = "bubble " + (role === "user" ? "user" : "bot");
+  if (imageDataUrl) {
+    const img = document.createElement("img");
+    img.src = imageDataUrl;
+    img.className = "bubble-img";
+    div.appendChild(img);
+  }
+  if (text) {
+    const textEl = document.createElement("div");
+    textEl.textContent = text;
+    div.appendChild(textEl);
+  }
+  log.appendChild(div);
+  document.getElementById("screen-bot").scrollTop = document.getElementById("screen-bot").scrollHeight;
+  return div;
+}
+
+function initChat() {
+  renderBubble("bot", "Hi! I'm FixIt Bot. Tell me what's broken and what it's doing, and I'll help you figure out what's wrong.");
+}
+
+function sendSuggestion(text) {
+  document.getElementById("chat-input").value = text;
+  sendChat();
+}
+
+async function sendChat() {
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  const photo = pendingImage; // snapshot before clearing
+  if (!text && !photo) return;
+
+  input.value = "";
+  clearPendingPhoto();
+  document.getElementById("chat-suggestions").style.display = "none";
+
+  const captionText = text || "What's wrong with this item?";
+  renderBubble("user", text, photo ? photo.dataUrl : null);
+
+  // Build the content block for this turn. If there's a photo, content
+  // must be an array (image block + text block) per the Anthropic API's
+  // multimodal message format; text-only turns stay a plain string.
+  const userContent = photo
+    ? [
+        { type: "image", source: { type: "base64", media_type: photo.mediaType, data: photo.base64 } },
+        { type: "text", text: captionText },
+      ]
+    : text;
+  chatHistory.push({ role: "user", content: userContent });
+
+  const sendBtn = document.getElementById("chat-send-btn");
+  sendBtn.disabled = true;
+  const typingBubble = renderBubble("bot", "FixIt Bot is thinking...");
+  typingBubble.classList.add("typing");
+
+  // Ground the model's answer with real data: live iFixit guide search,
+  // plus a real repair-success rate from the Open Repair Alliance
+  // dataset if the device matches one we have stats for. Both are
+  // appended only to the API payload, not to what's shown in the
+  // user's own chat bubble above. Skipped when there's no caption text
+  // to search on (photo with no description).
+  let ifixitGuides = [];
+  let stat = null;
+  if (text) {
+    [ifixitGuides, stat] = await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))]);
+  }
+
+  let groundingNote = "";
+  if (ifixitGuides.length) {
+    groundingNote += "\n\n[Real iFixit guides found for this: " +
+      ifixitGuides.map(g => `"${g.title}" (${g.url})`).join("; ") +
+      ". Mention the most relevant one by name and link if it fits naturally.]";
+  }
+  if (stat) {
+    groundingNote += `\n\n[Real data point: in the Open Repair Alliance's community dataset, ${stat.label} repairs at community events succeed ${stat.overall}% of the time (n=${stat.overallN}). You can mention this stat if it's encouraging or relevant, but don't force it in.]`;
+  }
+
+  // Re-attach the grounding note to just this turn's payload without
+  // mutating what's stored in chatHistory (so future turns don't
+  // accumulate stale notes).
+  let apiLastContent = userContent;
+  if (groundingNote) {
+    apiLastContent = photo
+      ? [userContent[0], { type: "text", text: captionText + groundingNote }]
+      : text + groundingNote;
+  }
+  const apiMessages = chatHistory.slice(0, -1).concat([{ role: "user", content: apiLastContent }]);
+
+  try {
+    // Calls our own backend, which holds the real Anthropic API key
+    // server-side and forwards the request -- the browser never sees
+    // the key, unlike the artifact version which called Claude directly.
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system: SYSTEM_PROMPT,
+        messages: apiMessages,
+      }),
+    });
+    const data = await response.json();
+    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text);
+    const reply = textBlocks.join("\n").trim() || "Sorry, I didn't catch that -- could you try rephrasing?";
+
+    typingBubble.remove();
+    renderBubble("bot", reply);
+    chatHistory.push({ role: "assistant", content: reply });
+
+    if (ifixitGuides.length) {
+      const log = document.getElementById("chat-log");
+      const linkRow = document.createElement("div");
+      linkRow.className = "suggest-row";
+      linkRow.style.marginTop = "-4px";
+      ifixitGuides.slice(0, 2).forEach(g => {
+        const a = document.createElement("a");
+        a.href = g.url; a.target = "_blank"; a.rel = "noopener";
+        a.className = "suggest-chip";
+        a.style.textDecoration = "none";
+        a.textContent = "🔗 " + g.title;
+        linkRow.appendChild(a);
+      });
+      log.appendChild(linkRow);
+    }
+  } catch (err) {
+    typingBubble.remove();
+    renderBubble("bot", "I'm having trouble connecting right now. In the meantime, try the Events tab to find a Repair Café coach who can help in person.");
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+/* =========================================================
+   EVENTS
+   ========================================================= */
+let userDistances = null; // { eventId: miles } after a successful address search
+
+// Calls our own backend, which proxies to OpenStreetMap's Nominatim
+// geocoder server-side (also lets the server set a proper User-Agent
+// header, which Nominatim's usage policy asks for and a browser can't
+// set on outgoing fetches).
+async function geocodeAddress(address) {
+  const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
+  if (!resp.ok) throw new Error("Geocoding request failed");
+  const data = await resp.json();
+  return { lat: data.lat, lng: data.lng };
+}
+
+// Haversine distance in miles between two lat/lng points.
+function distanceMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function findNearest() {
+  const input = document.getElementById("address-input");
+  const address = input.value.trim();
+  const status = document.getElementById("nearest-status");
+  const btn = document.getElementById("find-nearest-btn");
+  if (!address) { status.textContent = "Enter an address first."; status.classList.add("error"); return; }
+
+  btn.disabled = true;
+  status.classList.remove("error");
+  status.textContent = "Finding your location...";
+
+  try {
+    const { lat, lng } = await geocodeAddress(address);
+    userDistances = {};
+    EVENTS.forEach(e => { userDistances[e.id] = distanceMiles(lat, lng, e.lat, e.lng); });
+    const closest = EVENTS.reduce((a, b) => (userDistances[a.id] < userDistances[b.id] ? a : b));
+    status.textContent = `Closest: ${closest.name.split("—")[1]?.trim() || closest.name} — ${userDistances[closest.id].toFixed(1)} mi away`;
+    renderEvents();
+  } catch (err) {
+    status.textContent = "Couldn't find that address — try adding city and state.";
+    status.classList.add("error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function renderEvents() {
+  const myRsvps = await storageGet("my:rsvps", false, []);
+  const list = document.getElementById("events-list");
+  list.innerHTML = "";
+
+  let sorted = [...EVENTS];
+  if (userDistances) {
+    sorted.sort((a, b) => userDistances[a.id] - userDistances[b.id]);
+  } else {
+    sorted.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  const nearestId = userDistances
+    ? Object.entries(userDistances).sort((a, b) => a[1] - b[1])[0][0]
+    : null;
+
+  sorted.forEach(e => {
+    const spotsLeft = Math.max(0, e.capacity - e.registered);
+    const full = spotsLeft <= 0;
+    const going = myRsvps.includes(e.id);
+
+    let spotsClass = "ok", spotsLabel = spotsLeft + " spots left";
+    if (full) { spotsClass = "full"; spotsLabel = "Full"; }
+    else if (spotsLeft <= 8) { spotsClass = "low"; spotsLabel = "Only " + spotsLeft + " spots left"; }
+
+    const distanceBadge = userDistances
+      ? `<div class="distance-badge">📍 ${userDistances[e.id].toFixed(1)} mi away${e.id === nearestId ? " · Closest" : ""}</div>`
+      : "";
+
+    const div = document.createElement("div");
+    div.className = "event-card" + (e.id === nearestId ? " nearest" : "");
+    div.innerHTML = `
+      ${distanceBadge}
+      <div class="event-name">${e.name}</div>
+      <div class="event-meta">${e.location}</div>
+      <div class="event-meta">${e.date} · ${e.time}</div>
+      <div class="event-notes">${e.notes}</div>
+      <div class="event-footer">
+        <span class="spots ${spotsClass}">${spotsLabel}</span>
+        <button class="rsvp-btn ${going ? 'going' : ''}" ${full && !going ? 'disabled' : ''} onclick="toggleRsvp('${e.id}')">${going ? "✓ Going" : "I'm going"}</button>
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+async function toggleRsvp(eventId) {
+  let mine = await storageGet("my:rsvps", false, []);
+  if (mine.includes(eventId)) {
+    mine = mine.filter(id => id !== eventId);
+    showToast("Removed from your events");
+  } else {
+    mine.push(eventId);
+    showToast("You're on the list!");
+  }
+  await storageSet("my:rsvps", mine, false);
+  renderEvents();
+}
+
+/* =========================================================
+   IMPACT
+   ========================================================= */
+let selectedFixDevice = null;
+
+function renderLogChips() {
+  const wrap = document.getElementById("log-fix-chips");
+  wrap.innerHTML = "";
+  Object.keys(DEVICE_IMPACT).forEach(device => {
+    const chip = document.createElement("span");
+    chip.className = "device-chip" + (selectedFixDevice === device ? " selected" : "");
+    chip.textContent = device;
+    chip.onclick = () => { selectedFixDevice = device; renderLogChips(); document.getElementById("log-fix-btn").disabled = false; };
+    wrap.appendChild(chip);
+  });
+}
+
+async function renderImpact() {
+  const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
+  document.getElementById("impact-repairs").textContent = totals.total_repairs;
+  document.getElementById("impact-weight").textContent = totals.total_weight.toFixed(1) + " kg";
+  document.getElementById("impact-co2").textContent = totals.total_co2.toFixed(1) + " kg";
+
+  const feed = await storageGet("impact:feed", true, []);
+  const feedEl = document.getElementById("impact-feed");
+  feedEl.innerHTML = "";
+  if (feed.length === 0) {
+    feedEl.innerHTML = '<p class="empty-note">No fixes logged yet — be the first!</p>';
+  } else {
+    [...feed].reverse().slice(0, 10).forEach(item => {
+      const div = document.createElement("div");
+      div.className = "feed-item";
+      div.innerHTML = `<span class="fd">Someone fixed a ${item.device.toLowerCase()}</span><span class="fv">−${item.weight} kg</span>`;
+      feedEl.appendChild(div);
+    });
+  }
+}
+
+async function logFix() {
+  if (!selectedFixDevice) return;
+  const impact = DEVICE_IMPACT[selectedFixDevice];
+  const btn = document.getElementById("log-fix-btn");
+  btn.disabled = true;
+
+  const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
+  totals.total_repairs += 1;
+  totals.total_weight = Math.round((totals.total_weight + impact.weight) * 10) / 10;
+  totals.total_co2 = Math.round((totals.total_co2 + impact.co2) * 10) / 10;
+  await storageSet("impact:totals", totals, true);
+
+  const feed = await storageGet("impact:feed", true, []);
+  feed.push({ device: selectedFixDevice, weight: impact.weight, co2: impact.co2, ts: Date.now() });
+  await storageSet("impact:feed", feed.slice(-50), true);
+
+  showToast("Nice work! Impact logged 🌍");
+  selectedFixDevice = null;
+  renderLogChips();
+  renderImpact();
+  renderHome();
+}
+
+function renderSuccessStats() {
+  const wrap = document.getElementById("success-stats");
+  wrap.innerHTML = "";
+  Object.entries(REPAIR_SUCCESS_STATS).forEach(([label, s]) => {
+    const div = document.createElement("div");
+    div.className = "stat-line";
+    div.innerHTML = `
+      <div class="stat-line-top"><span class="sl-name">${label}</span><span class="sl-pct">${s.overall}%</span></div>
+      <div class="stat-bar-bg"><div class="stat-bar-fill" style="width:${s.overall}%"></div></div>
+      <div class="stat-line-n">${s.overallN.toLocaleString()} real repair attempts logged · ${s.fixitClinic}% at Fixit Clinic events specifically</div>
+    `;
+    wrap.appendChild(div);
+  });
+}
+
+/* =========================================================
+   COACH
+   ========================================================= */
+let selectedCoachId = null;
+let selectedSlot = null;
+let newCoachSlots = [];
+
+function generateId(prefix) {
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${prefix}-${Date.now().toString(36)}-${rand}`;
+}
+
+async function renderCoachRoster() {
+  const roster = await storageGet("coaches:roster", true, []);
+  const booked = await storageGet("coaches:booked", true, []);
+  const wrap = document.getElementById("coach-roster");
+  wrap.innerHTML = "";
+
+  if (roster.length === 0) {
+    wrap.innerHTML = '<p class="empty-note">No coaches yet — add someone you know below to get started.</p>';
+    return;
+  }
+
+  roster.forEach(c => {
+    const bookedSlots = booked.filter(b => b.coachId === c.id).map(b => b.slot);
+    const openCount = c.slots.filter(s => !bookedSlots.includes(s)).length;
+
+    const div = document.createElement("div");
+    div.className = "coach-card" + (selectedCoachId === c.id ? " selected" : "");
+    div.innerHTML = `
+      <div class="cc-top"><span class="cc-name">${c.name}</span><span class="cc-spec">${c.specialty}</span></div>
+      ${c.bio ? `<div class="cc-bio">${c.bio}</div>` : ""}
+      <div class="cc-slots">${openCount > 0 ? openCount + " open slot" + (openCount === 1 ? "" : "s") : "Fully booked right now"}</div>
+    `;
+    div.onclick = () => {
+      selectedCoachId = c.id;
+      selectedSlot = null;
+      document.getElementById("booking-sheet-title").textContent = "Book with " + c.name;
+      openSheet("sheet-booking");
+      renderSlots();
+    };
+    wrap.appendChild(div);
+  });
+}
+
+async function renderSlots() {
+  if (!selectedCoachId) return;
+  const roster = await storageGet("coaches:roster", true, []);
+  const coach = roster.find(c => c.id === selectedCoachId);
+  if (!coach) return;
+  const booked = await storageGet("coaches:booked", true, []);
+  const bookedSlots = booked.filter(b => b.coachId === selectedCoachId).map(b => b.slot);
+
+  const wrap = document.getElementById("slot-grid");
+  wrap.innerHTML = "";
+  coach.slots.forEach(slot => {
+    const isBooked = bookedSlots.includes(slot);
+    const btn = document.createElement("button");
+    btn.className = "slot-btn" + (selectedSlot === slot ? " selected" : "");
+    btn.textContent = slot + (isBooked ? " (booked)" : "");
+    btn.disabled = isBooked;
+    if (isBooked) btn.style.opacity = "0.4";
+    btn.onclick = () => { selectedSlot = slot; renderSlots(); };
+    wrap.appendChild(btn);
+  });
+}
+
+async function renderMyBookings() {
+  const bookings = await storageGet("my:bookings", false, []);
+  const el = document.getElementById("my-bookings");
+  el.innerHTML = "";
+  if (bookings.length === 0) {
+    el.innerHTML = '<p class="empty-note">No bookings yet.</p>';
+    return;
+  }
+  [...bookings].reverse().forEach(b => {
+    const div = document.createElement("div");
+    div.className = "booking-item";
+    const mailtoHref = b.coachEmail
+      ? `mailto:${encodeURIComponent(b.coachEmail)}?subject=${encodeURIComponent("FixItFlow session: " + b.device)}&body=${encodeURIComponent(`Hi ${b.coachName},\n\nI booked a FixItFlow coaching session with you:\n\nItem: ${b.device}\nTime: ${b.slot}\nFrom: ${b.bookerName}\n\nLet me know how you'd like to connect (video call, phone, etc).`)}`
+      : null;
+    div.innerHTML = `
+      <div class="bi-top">${b.device}</div>
+      <div class="bi-sub">${b.coachName} (${b.specialty}) · ${b.slot}</div>
+      ${mailtoHref ? `<a class="mailto-link" href="${mailtoHref}">✉️ Notify ${b.coachName.split(" ")[0]}</a>` : ""}
+    `;
+    el.appendChild(div);
+  });
+}
+
+async function bookCoach() {
+  const device = document.getElementById("coach-device").value.trim();
+  const bookerName = document.getElementById("coach-name").value.trim() || "Guest";
+
+  if (!selectedCoachId || !selectedSlot || !device) {
+    showToast("Pick a coach, a time, and describe the item first");
+    return;
+  }
+
+  const roster = await storageGet("coaches:roster", true, []);
+  const coach = roster.find(c => c.id === selectedCoachId);
+  if (!coach) { showToast("That coach is no longer available"); return; }
+
+  // Reserve the slot in shared storage so no one else can double-book it.
+  const booked = await storageGet("coaches:booked", true, []);
+  booked.push({ coachId: coach.id, slot: selectedSlot, ts: Date.now() });
+  await storageSet("coaches:booked", booked, true);
+
+  const bookings = await storageGet("my:bookings", false, []);
+  bookings.push({
+    device, bookerName,
+    coachName: coach.name, specialty: coach.specialty, coachEmail: coach.email,
+    slot: selectedSlot, ts: Date.now(),
+  });
+  await storageSet("my:bookings", bookings, false);
+
+  showToast("Session booked with " + coach.name + "!");
+  document.getElementById("coach-device").value = "";
+  document.getElementById("coach-name").value = "";
+  selectedCoachId = null;
+  selectedSlot = null;
+  closeSheet("sheet-booking");
+  renderCoachRoster();
+  renderMyBookings();
+}
+
+/* -------- adding a new coach to the shared roster -------- */
+function renderNewCoachSlots() {
+  const wrap = document.getElementById("new-coach-slots");
+  wrap.innerHTML = "";
+  TIME_SLOTS.forEach(slot => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "slot-btn" + (newCoachSlots.includes(slot) ? " selected" : "");
+    btn.textContent = slot;
+    btn.onclick = () => {
+      if (newCoachSlots.includes(slot)) newCoachSlots = newCoachSlots.filter(s => s !== slot);
+      else newCoachSlots.push(slot);
+      renderNewCoachSlots();
+    };
+    wrap.appendChild(btn);
+  });
+}
+
+async function addCoach() {
+  const name = document.getElementById("new-coach-name").value.trim();
+  const specialty = document.getElementById("new-coach-specialty").value;
+  const bio = document.getElementById("new-coach-bio").value.trim();
+  const email = document.getElementById("new-coach-email").value.trim();
+
+  if (!name || !email) { showToast("Add at least a name and email"); return; }
+  if (newCoachSlots.length === 0) { showToast("Pick at least one time slot they're free"); return; }
+
+  const roster = await storageGet("coaches:roster", true, []);
+  roster.push({ id: generateId("coach"), name, specialty, bio, email, slots: [...newCoachSlots] });
+  await storageSet("coaches:roster", roster, true);
+
+  showToast(name + " added as a coach!");
+  document.getElementById("new-coach-name").value = "";
+  document.getElementById("new-coach-bio").value = "";
+  document.getElementById("new-coach-email").value = "";
+  newCoachSlots = [];
+  renderNewCoachSlots();
+  renderCoachRoster();
+  closeSheet("sheet-add-coach");
+}
+
+/* =========================================================
+   DONATE
+   ========================================================= */
+async function renderDonations() {
+  const listings = await storageGet("donations:listings", true, []);
+  const el = document.getElementById("donation-list");
+  el.innerHTML = "";
+  if (listings.length === 0) {
+    el.innerHTML = '<p class="empty-note">No listings yet — post the first spare part!</p>';
+    return;
+  }
+  [...listings].reverse().forEach(l => {
+    const div = document.createElement("div");
+    div.className = "listing-card";
+    div.innerHTML = `
+      <div class="listing-cat">${l.category}</div>
+      <div class="listing-title">${l.title}</div>
+      ${l.desc ? `<div class="listing-desc">${l.desc}</div>` : ""}
+      <div class="listing-loc">📍 ${l.location || "Area not specified"}</div>
+    `;
+    el.appendChild(div);
+  });
+}
+
+async function postDonation() {
+  const category = document.getElementById("donate-category").value;
+  const title = document.getElementById("donate-title").value.trim();
+  const desc = document.getElementById("donate-desc").value.trim();
+  const location = document.getElementById("donate-loc").value.trim();
+
+  if (!title) { showToast("Add a title for your listing"); return; }
+
+  const listings = await storageGet("donations:listings", true, []);
+  listings.push({ category, title, desc, location, ts: Date.now() });
+  await storageSet("donations:listings", listings.slice(-100), true);
+
+  showToast("Listing posted — thanks for keeping it out of the landfill!");
+  document.getElementById("donate-title").value = "";
+  document.getElementById("donate-desc").value = "";
+  document.getElementById("donate-loc").value = "";
+  renderDonations();
+  closeSheet("sheet-donate");
+}
+
+/* =========================================================
+   INIT
+   ========================================================= */
+window.addEventListener("DOMContentLoaded", () => {
+  renderHome();
+  initChat();
+  renderEvents();
+  renderLogChips();
+  renderImpact();
+  renderSuccessStats();
+  renderCoachRoster();
+  renderNewCoachSlots();
+  renderMyBookings();
+  renderDonations();
+
+  // Register the service worker for offline resilience + installability.
+  // Safe to no-op if unsupported (older browsers) or if served over
+  // plain HTTP in local dev (service workers require HTTPS or localhost).
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch((err) => {
+      console.warn("Service worker registration failed:", err);
+    });
+  }
+});
+
+</script>
+</body>
+</html>
