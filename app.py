@@ -3,20 +3,22 @@ app.py
 ------
 FixItFlow backend.
 
-Replaces three things the Claude-artifact version relied on that only
+Replaces two things the Claude-artifact version relied on that only
 work inside Claude.ai:
   1. window.storage           -> /api/storage  (real SQLite, see db.py)
-  2. direct fetch to Claude   -> /api/chat      (server holds the API key)
-  3. direct fetch to iFixit / -> /api/ifixit-search, /api/geocode
+  2. direct fetch to iFixit / -> /api/ifixit-search, /api/geocode
      Nominatim from the browser  (proxied server-side, avoids any CORS
                                    issues and lets us set a proper
                                    User-Agent for Nominatim's usage policy)
 
+The FixIt Bot chat is rule-based (keyword matching against real iFixit
+guide search results + real Open Repair Alliance stats), not a live
+LLM call -- this avoids any API billing risk entirely, which mattered
+more than a fancier chat for a CAC submission on a tight budget.
+
 Run locally:      python app.py
 
-Required environment variable:
-  ANTHROPIC_API_KEY   -- from console.anthropic.com
-Optional:
+Optional environment variable:
   FLASK_SECRET_KEY    -- any random string; used to sign session cookies
                           that identify "this browser" for personal
                           (non-shared) storage. A default is provided
@@ -33,10 +35,6 @@ from db import init_db, kv_get, kv_set
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
-
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
 
 init_db()
 
@@ -87,39 +85,6 @@ def storage_set():
     scope = "shared" if shared else get_user_scope()
     kv_set(scope, key, value)
     return jsonify({"key": key, "value": value, "shared": shared})
-
-
-# ---------------------------------------------------------------------
-# Claude API proxy (keeps the API key server-side, off the browser)
-# ---------------------------------------------------------------------
-@app.route("/api/chat", methods=["POST"])
-def chat():
-    if not ANTHROPIC_API_KEY:
-        return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
-
-    body = request.get_json(force=True)
-    messages = body.get("messages", [])
-    system = body.get("system", "")
-
-    try:
-        resp = requests.post(
-            ANTHROPIC_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": ANTHROPIC_VERSION,
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-6",
-                "max_tokens": 1000,
-                "system": system,
-                "messages": messages,
-            },
-            timeout=30,
-        )
-        return jsonify(resp.json()), resp.status_code
-    except requests.RequestException as e:
-        return jsonify({"error": str(e)}), 502
 
 
 # ---------------------------------------------------------------------
