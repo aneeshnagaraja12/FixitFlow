@@ -140,6 +140,66 @@ def geocode():
         return jsonify({"error": "Geocoding failed"}), 502
 
 
+# ---------------------------------------------------------------------
+# Repair Café worldwide location proxy. This is the Repair Café
+# Foundation's real, official, public API (no key needed) covering
+# their global network of repair groups -- see
+# repaircafe.org/en/api/ for the source documentation.
+#
+# Important limitation: this API returns *locations* (a repair group's
+# name, address, contact link), not specific dated upcoming events --
+# most Repair Cafés meet on a recurring schedule (e.g. "second
+# Saturday of the month") that varies per location, so exact dates
+# require following the link to that café's own page.
+# ---------------------------------------------------------------------
+@app.route("/api/repair-cafes", methods=["GET"])
+def repair_cafes():
+    try:
+        lat = float(request.args.get("lat", ""))
+        lng = float(request.args.get("lng", ""))
+    except ValueError:
+        return jsonify({"error": "lat and lng are required"}), 400
+
+    radius_miles = float(request.args.get("radius", 30))
+    delta_lat = radius_miles / 69.0
+    # longitude degrees shrink as you move away from the equator
+    delta_lng = radius_miles / (69.0 * max(0.1, __import__("math").cos(lat * 3.14159265 / 180)))
+
+    try:
+        resp = requests.get(
+            "https://www.repaircafe.org/wp-json/v1/map",
+            params={
+                "northeast": f"{lat + delta_lat},{lng + delta_lng}",
+                "southwest": f"{lat - delta_lat},{lng - delta_lng}",
+            },
+            timeout=8,
+        )
+        if not resp.ok:
+            return jsonify({"results": []})
+        data = resp.json()
+        results = []
+        for loc in data if isinstance(data, list) else []:
+            coord = loc.get("coordinate", "")
+            parts = coord.split(",")
+            if len(parts) != 2:
+                continue
+            try:
+                loc_lat, loc_lng = float(parts[0]), float(parts[1])
+            except ValueError:
+                continue
+            results.append({
+                "name": loc.get("name", "Repair Café"),
+                "address": loc.get("address", ""),
+                "link": loc.get("link", ""),
+                "external_link": loc.get("external_link", ""),
+                "lat": loc_lat,
+                "lng": loc_lng,
+            })
+        return jsonify({"results": results})
+    except (requests.RequestException, ValueError):
+        return jsonify({"results": []})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
