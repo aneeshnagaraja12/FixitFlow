@@ -180,6 +180,11 @@
     background: var(--rust-bg); padding: 2px 9px; border-radius: 999px; margin-bottom: 8px;
   }
   .event-card.nearest { border-color: var(--rust); box-shadow: 0 0 0 1px var(--rust); }
+  .rc-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .rc-name { font-weight: 700; font-size: 0.9rem; margin-bottom: 3px; }
+  .rc-addr { font-size: 0.79rem; color: var(--muted); margin-bottom: 8px; }
+  .rc-links { display: flex; gap: 8px; }
+  .rc-link { font-size: 0.76rem; font-weight: 700; color: var(--rust-deep); text-decoration: none; background: var(--rust-bg); padding: 5px 10px; border-radius: 999px; }
   .coach-card {
     border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
   }
@@ -366,14 +371,22 @@
   <div class="screen" id="screen-events">
     <h2 class="section-title">Free repair events near you</h2>
     <div class="card">
-      <label class="f">Find the closest one to you</label>
+      <label class="f">Find repair help anywhere</label>
       <div style="display:flex; gap:8px;">
-        <input type="text" class="f-input" id="address-input" placeholder="Enter your address" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
+        <input type="text" class="f-input" id="address-input" placeholder="Enter any address, worldwide" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
         <button class="rsvp-btn" style="flex-shrink:0; padding:0 16px;" onclick="findNearest()" id="find-nearest-btn">Find</button>
       </div>
       <div id="nearest-status" class="nearest-status"></div>
     </div>
+
+    <h2 class="section-title">Scheduled Silicon Valley events</h2>
     <div id="events-list"></div>
+
+    <div id="worldwide-section" style="display:none;">
+      <h2 class="section-title">Repair Café groups near your search</h2>
+      <p class="empty-note" style="text-align:left; padding:0 0 10px; font-size:0.72rem;">From the Repair Café Foundation's real global directory. These are recurring local groups, not dated events — tap through to each one's page for their exact schedule.</p>
+      <div id="worldwide-list"></div>
+    </div>
   </div>
 
   <!-- ================= IMPACT ================= -->
@@ -521,7 +534,7 @@
 </div>
 
 <script>
-/* =========================================================
+     /* =========================================================
    DATA
    ========================================================= */
 
@@ -695,11 +708,19 @@ function goTab(name) {
   const screenEl = document.getElementById("screen-" + name);
   if (screenEl) screenEl.scrollTop = 0;
 
+  // The chat footer (input bar) only makes sense on the bot tab -- show
+  // or hide it, then recompute how much bottom padding #screen-bot needs
+  // so the footer never overlaps the last message in the log.
   const footer = document.getElementById("chat-footer");
   footer.style.display = name === "bot" ? "block" : "none";
   if (name === "bot") layoutChatFooter();
 }
 
+// Measures the real, current height of the fixed tab bar and chat
+// footer, then positions the footer directly above the tab bar and
+// gives #screen-bot enough padding-bottom to scroll fully clear of
+// both. Re-run whenever the footer's height can change (photo preview
+// shown/hidden, window resized) so the reserved space stays accurate.
 function layoutChatFooter() {
   const tabbar = document.querySelector(".tabbar");
   const footer = document.getElementById("chat-footer");
@@ -764,7 +785,7 @@ function resizeImageFile(file, maxDim = 1024, quality = 0.85) {
 
 async function handlePhotoSelected(event) {
   const file = event.target.files[0];
-  event.target.value = "";
+  event.target.value = ""; // allow selecting the same file again later
   if (!file) return;
   try {
     const dataUrl = await resizeImageFile(file);
@@ -786,6 +807,8 @@ function clearPendingPhoto() {
   layoutChatFooter();
 }
 
+// Calls our own backend, which proxies to iFixit's public search API
+// server-side (avoids any browser CORS issues entirely).
 async function fetchIfixitGuides(query) {
   try {
     const resp = await fetch(`/api/ifixit-search?q=${encodeURIComponent(query)}`);
@@ -841,7 +864,7 @@ function sendSuggestion(text) {
 async function sendChat() {
   const input = document.getElementById("chat-input");
   const text = input.value.trim();
-  const photo = pendingImage;
+  const photo = pendingImage; // snapshot before clearing
   if (!text && !photo) return;
 
   input.value = "";
@@ -855,6 +878,10 @@ async function sendChat() {
   const typingBubble = renderBubble("bot", "Looking that up...");
   typingBubble.classList.add("typing");
 
+  // Rule-based response: match the device keyword, pull real canned
+  // tips, a real repair-success stat, and real live iFixit guide
+  // search results. No LLM call -- deterministic and free to run as
+  // many times as you want while testing.
   const [ifixitGuides, stat] = text
     ? await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))])
     : [[], null];
@@ -905,13 +932,58 @@ async function sendChat() {
 /* =========================================================
    EVENTS
    ========================================================= */
-let userDistances = null;
+let userDistances = null; // { eventId: miles } after a successful address search
 
+// Calls our own backend, which proxies to OpenStreetMap's Nominatim
+// geocoder server-side (also lets the server set a proper User-Agent
+// header, which Nominatim's usage policy asks for and a browser can't
+// set on outgoing fetches).
 async function geocodeAddress(address) {
   const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
   if (!resp.ok) throw new Error("Geocoding request failed");
   const data = await resp.json();
   return { lat: data.lat, lng: data.lng };
+}
+
+// Haversine distance in miles between two lat/lng points.
+async function fetchWorldwideRepairCafes(lat, lng) {
+  try {
+    const resp = await fetch(`/api/repair-cafes?lat=${lat}&lng=${lng}&radius=30`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data.results || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function renderWorldwideResults(cafes, userLat, userLng) {
+  const section = document.getElementById("worldwide-section");
+  const wrap = document.getElementById("worldwide-list");
+  wrap.innerHTML = "";
+
+  if (cafes.length === 0) {
+    section.style.display = "none";
+    return;
+  }
+  section.style.display = "block";
+
+  const withDistance = cafes.map(c => ({ ...c, dist: distanceMiles(userLat, userLng, c.lat, c.lng) }));
+  withDistance.sort((a, b) => a.dist - b.dist);
+
+  withDistance.slice(0, 10).forEach(c => {
+    const div = document.createElement("div");
+    div.className = "rc-card";
+    div.innerHTML = `
+      <div class="rc-name">${c.name}</div>
+      <div class="rc-addr">📍 ${c.address || "Address not listed"} · ${c.dist.toFixed(1)} mi away</div>
+      <div class="rc-links">
+        ${c.link ? `<a class="rc-link" href="${c.link}" target="_blank" rel="noopener">View on Repair Café →</a>` : ""}
+        ${c.external_link ? `<a class="rc-link" href="${c.external_link}" target="_blank" rel="noopener">Website →</a>` : ""}
+      </div>
+    `;
+    wrap.appendChild(div);
+  });
 }
 
 function distanceMiles(lat1, lng1, lat2, lng2) {
@@ -939,7 +1011,17 @@ async function findNearest() {
     userDistances = {};
     EVENTS.forEach(e => { userDistances[e.id] = distanceMiles(lat, lng, e.lat, e.lng); });
     const closest = EVENTS.reduce((a, b) => (userDistances[a.id] < userDistances[b.id] ? a : b));
-    status.textContent = `Closest: ${closest.name.split("—")[1]?.trim() || closest.name} — ${userDistances[closest.id].toFixed(1)} mi away`;
+
+    const worldwideCafes = await fetchWorldwideRepairCafes(lat, lng);
+    renderWorldwideResults(worldwideCafes, lat, lng);
+
+    if (userDistances[closest.id] < 100) {
+      status.textContent = `Closest scheduled event: ${closest.name.split("—")[1]?.trim() || closest.name} — ${userDistances[closest.id].toFixed(1)} mi away`;
+    } else if (worldwideCafes.length) {
+      status.textContent = `Found ${worldwideCafes.length} Repair Café group${worldwideCafes.length === 1 ? "" : "s"} near you below.`;
+    } else {
+      status.textContent = "No Silicon Valley events or nearby Repair Café groups found for that location.";
+    }
     renderEvents();
   } catch (err) {
     status.textContent = "Couldn't find that address — try adding city and state.";
@@ -1187,6 +1269,7 @@ async function bookCoach() {
   const coach = roster.find(c => c.id === selectedCoachId);
   if (!coach) { showToast("That coach is no longer available"); return; }
 
+  // Reserve the slot in shared storage so no one else can double-book it.
   const booked = await storageGet("coaches:booked", true, []);
   booked.push({ coachId: coach.id, slot: selectedSlot, ts: Date.now() });
   await storageSet("coaches:booked", booked, true);
@@ -1209,6 +1292,7 @@ async function bookCoach() {
   renderMyBookings();
 }
 
+/* -------- adding a new coach to the shared roster -------- */
 function renderNewCoachSlots() {
   const wrap = document.getElementById("new-coach-slots");
   wrap.innerHTML = "";
@@ -1308,6 +1392,9 @@ window.addEventListener("DOMContentLoaded", () => {
   renderMyBookings();
   renderDonations();
 
+  // Register the service worker for offline resilience + installability.
+  // Safe to no-op if unsupported (older browsers) or if served over
+  // plain HTTP in local dev (service workers require HTTPS or localhost).
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => {
       console.warn("Service worker registration failed:", err);
