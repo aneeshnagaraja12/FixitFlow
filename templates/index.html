@@ -376,6 +376,12 @@
         <input type="text" class="f-input" id="address-input" placeholder="Enter any address, worldwide" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
         <button class="rsvp-btn" style="flex-shrink:0; padding:0 16px;" onclick="findNearest()" id="find-nearest-btn">Find</button>
       </div>
+         <select id="radius-select"> 
+<option value="10">10 miles</option>
+<option value="25">25 miles</option> 
+<option value="50">50 miles</option> 
+<option value="100">100 miles</option>
+</select>
       <div id="nearest-status" class="nearest-status"></div>
     </div>
 
