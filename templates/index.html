@@ -952,9 +952,9 @@ async function geocodeAddress(address) {
 }
 
 // Haversine distance in miles between two lat/lng points.
-async function fetchWorldwideRepairCafes(lat, lng) {
+async function fetchWorldwideRepairCafes(lat, lng, radius) {
   try {
-    const resp = await fetch(`/api/repair-cafes?lat=${lat}&lng=${lng}&radius=30`);
+    const resp = await fetch(`/api/repair-cafes?lat=${lat}&lng=${lng}&radius=${radius}`);
     if (!resp.ok) return [];
     const data = await resp.json();
     return data.results || [];
@@ -1004,6 +1004,7 @@ function distanceMiles(lat1, lng1, lat2, lng2) {
 async function findNearest() {
   const input = document.getElementById("address-input");
   const address = input.value.trim();
+  const radius = document.getElementById("radius-select").value;
   const status = document.getElementById("nearest-status");
   const btn = document.getElementById("find-nearest-btn");
   if (!address) { status.textContent = "Enter an address first."; status.classList.add("error"); return; }
@@ -1018,7 +1019,7 @@ async function findNearest() {
     EVENTS.forEach(e => { userDistances[e.id] = distanceMiles(lat, lng, e.lat, e.lng); });
     const closest = EVENTS.reduce((a, b) => (userDistances[a.id] < userDistances[b.id] ? a : b));
 
-    const worldwideCafes = await fetchWorldwideRepairCafes(lat, lng);
+    const worldwideCafes = await fetchWorldwideRepairCafes(lat, lng, radius);
     renderWorldwideResults(worldwideCafes, lat, lng);
 
     if (userDistances[closest.id] < 100) {
