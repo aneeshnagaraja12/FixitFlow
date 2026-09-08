@@ -6,7 +6,7 @@
 <title>FixItFlow</title>
 
 <!-- PWA: makes "Add to Home Screen" give a real icon + full-screen launch -->
-<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}"> 
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
 <meta name="theme-color" content="#b5502f">
 
 <!-- iOS-specific: without these, Safari's Add to Home Screen uses a
@@ -371,28 +371,22 @@
   <div class="screen" id="screen-events">
     <h2 class="section-title">Free repair events near you</h2>
     <div class="card">
-      <label class="f">Find repair help anywhere</label>
+      <label class="f">Find events within a distance of you</label>
       <div style="display:flex; gap:8px;">
-        <input type="text" class="f-input" id="address-input" placeholder="Enter any address, worldwide" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
+        <input type="text" class="f-input" id="address-input" placeholder="Enter your address" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
         <button class="rsvp-btn" style="flex-shrink:0; padding:0 16px;" onclick="findNearest()" id="find-nearest-btn">Find</button>
       </div>
-         <select id="radius-select"> 
-<option value="10">10 miles</option>
-<option value="25">25 miles</option> 
-<option value="50">50 miles</option> 
-<option value="100">100 miles</option>
-</select>
+      <select id="radius-select" class="f-input" style="margin-top:8px; margin-bottom:0;">
+        <option value="10">Within 10 miles</option>
+        <option value="25" selected>Within 25 miles</option>
+        <option value="50">Within 50 miles</option>
+        <option value="100">Within 100 miles</option>
+      </select>
       <div id="nearest-status" class="nearest-status"></div>
     </div>
 
-    <h2 class="section-title">Scheduled Silicon Valley events</h2>
+    <h2 class="section-title">Repair Café & Maker Nexus events</h2>
     <div id="events-list"></div>
-
-    <div id="worldwide-section" style="display:none;">
-      <h2 class="section-title">Repair Café groups near your search</h2>
-      <p class="empty-note" style="text-align:left; padding:0 0 10px; font-size:0.72rem;">From the Repair Café Foundation's real global directory. These are recurring local groups, not dated events — tap through to each one's page for their exact schedule.</p>
-      <div id="worldwide-list"></div>
-    </div>
   </div>
 
   <!-- ================= IMPACT ================= -->
@@ -440,7 +434,6 @@
 
     <button class="fab-btn" onclick="openSheet('sheet-add-coach')">+ Know someone who could coach?</button>
   </div>
-
 
   <!-- Booking sheet: opens when a coach card is tapped -->
   <div class="sheet-backdrop" id="sheet-backdrop-booking" onclick="closeSheet('sheet-booking')"></div>
@@ -541,31 +534,63 @@
 </div>
 
 <script>
-     /* =========================================================
+/* =========================================================
    DATA
    ========================================================= */
 
-// Real upcoming Repair Café Silicon Valley events (pulled from
-// repaircafesv.org, early Aug 2026). capacity/registered are
+// Real upcoming Repair Café Silicon Valley & Maker Nexus events (pulled
+// live from repaircafesv.org, late Aug 2026). capacity/registered are
 // illustrative estimates for the demo, not published real numbers.
 // lat/lng are real coordinates for each venue (via Google Places).
 const EVENTS = [
-  { id: "evt-sanjose-aug15-textile", name: "Sustainable Style Exchange & Mending Clinic — Tzu Chi Foundation",
-    location: "2355 Oakland Road, San Jose", lat: 37.40275, lng: -121.903647,
-    date: "2026-08-15", time: "11:00 AM – 3:00 PM",
-    notes: "Textile repairs only — no electronics, appliances, or bikes.", capacity: 30, registered: 22 },
-  { id: "evt-mtnview-aug16", name: "Repair Café Silicon Valley — Mountain View Senior Center",
-    location: "266 Escuela Ave, Mountain View", lat: 37.398749, lng: -122.093955,
-    date: "2026-08-16", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs: electronics, small appliances, textiles.", capacity: 45, registered: 29 },
+  { id: "evt-morganhill-sep12", name: "Repair Café Silicon Valley — Morgan Hill Library",
+    location: "660 W Main Ave, Morgan Hill", lat: 37.1243352, lng: -121.6629033,
+    date: "2026-09-12", time: "11:00 AM – 3:00 PM",
+    notes: "First ever event at this library. General repairs.", capacity: 40, registered: 11 },
+  { id: "evt-saratoga-westvalley-sep16", name: "Repair Café Silicon Valley — West Valley College",
+    location: "14000 Fruitvale Ave, Saratoga", lat: 37.2654906, lng: -122.0110235,
+    date: "2026-09-16", time: "10:00 AM – 2:00 PM",
+    notes: "Open to the public as well as faculty and students.", capacity: 35, registered: 6 },
+  { id: "evt-gilroy-sep19", name: "Repair Café Silicon Valley — Gilroy Library",
+    location: "350 W 6th St, Gilroy", lat: 37.0051296, lng: -121.5727007,
+    date: "2026-09-19", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs, limit two items per household.", capacity: 35, registered: 18 },
   { id: "evt-paloalto-sep24", name: "Repair Café Silicon Valley — Rinconada Library (evening)",
     location: "1213 Newell Road, Palo Alto", lat: 37.445005, lng: -122.139016,
     date: "2026-09-24", time: "5:00 PM – 7:00 PM",
     notes: "Sewing, jewelry, and general repairs — no bikes.", capacity: 25, registered: 9 },
-  { id: "evt-mtnview-sep27", name: "Repair Café Silicon Valley — Hacker Dojo",
+  { id: "evt-mtnview-hackerdojo-sep27", name: "Repair Café Silicon Valley — Hacker Dojo",
     location: "855 Maude Ave, Mountain View", lat: 37.396254, lng: -122.049074,
     date: "2026-09-27", time: "11:00 AM – 3:00 PM",
     notes: "Household items, bikes, and electronics welcome.", capacity: 50, registered: 14 },
+  { id: "evt-sanjose-gardenfair-oct3", name: "Repair Café Silicon Valley — Fall Garden Fair",
+    location: "5283 Snell Ave, San Jose", lat: 37.2636604, lng: -121.8314266,
+    date: "2026-10-03", time: "9:00 AM – 2:00 PM",
+    notes: "Focused on garden-related item repairs.", capacity: 30, registered: 4 },
+  { id: "evt-saratoga-library-oct4", name: "Repair Café Silicon Valley — Saratoga Library",
+    location: "13650 Saratoga Ave, Saratoga", lat: 37.2701224, lng: -122.0151327,
+    date: "2026-10-04", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs, limit two items per household.", capacity: 35, registered: 7 },
+  { id: "evt-sunnyvale-makernexus-oct10", name: "Maker Nexus — Fall Family Repair Café",
+    location: "1330 Orleans Dr, Sunnyvale", lat: 37.4119886, lng: -122.0062249,
+    date: "2026-10-10", time: "11:00 AM – 3:00 PM",
+    notes: "Family-focused — kids welcome to watch and participate.", capacity: 40, registered: 10 },
+  { id: "evt-sanjose-defrank-oct19", name: "Repair Café Silicon Valley — Billy DeFrank LGBTQ+ Community Center",
+    location: "938 The Alameda, San Jose", lat: 37.3315092, lng: -121.9080855,
+    date: "2026-10-19", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs — no bike repairs at this event.", capacity: 30, registered: 3 },
+  { id: "evt-mtnview-seniorcenter-oct25", name: "Repair Café Silicon Valley — Mountain View Senior Center",
+    location: "266 Escuela Ave, Mountain View", lat: 37.398749, lng: -122.093955,
+    date: "2026-10-25", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs, limit two items per household.", capacity: 45, registered: 12 },
+  { id: "evt-losgatos-nov1", name: "Repair Café Silicon Valley — Los Gatos Library",
+    location: "100 Villa Ave, Los Gatos", lat: 37.2202111, lng: -121.9782556,
+    date: "2026-11-01", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs: electronics, bikes, clothing, more.", capacity: 40, registered: 5 },
+  { id: "evt-paloalto-moah-nov8", name: "Repair Café Silicon Valley — Museum of American Heritage",
+    location: "351 Homer Ave, Palo Alto", lat: 37.4445267, lng: -122.157476,
+    date: "2026-11-08", time: "11:00 AM – 3:00 PM",
+    notes: "General repairs, limit two items per household.", capacity: 40, registered: 8 },
 ];
 
 // device category -> landfill weight (kg) + embodied CO2 avoided (kg).
@@ -762,12 +787,13 @@ async function renderHome() {
 }
 
 /* =========================================================
-   FIXIT BOT (rule-based -- keyword matching, real iFixit
-   guide search, real Open Repair Alliance stats. No live
-   AI/LLM call, no API key, no cost, ever.)
+   AI BOT (real Claude API call, grounded with real iFixit +
+   Open Repair Alliance data)
    ========================================================= */
-let pendingImage = null;
+let pendingImage = null; // { dataUrl, base64, mediaType } or null
 
+// Resizes/compresses a photo client-side before sending, so phone photos
+// (often 3000px+) don't bloat the API payload. Always outputs JPEG.
 function resizeImageFile(file, maxDim = 1024, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -940,6 +966,7 @@ async function sendChat() {
    EVENTS
    ========================================================= */
 let userDistances = null; // { eventId: miles } after a successful address search
+let activeRadius = null; // the radius (miles) selected at the time of the last search
 
 // Calls our own backend, which proxies to OpenStreetMap's Nominatim
 // geocoder server-side (also lets the server set a proper User-Agent
@@ -953,46 +980,6 @@ async function geocodeAddress(address) {
 }
 
 // Haversine distance in miles between two lat/lng points.
-async function fetchWorldwideRepairCafes(lat, lng, radius) {
-  try {
-    const resp = await fetch(`/api/repair-cafes?lat=${lat}&lng=${lng}&radius=${radius}`);
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return data.results || [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function renderWorldwideResults(cafes, userLat, userLng) {
-  const section = document.getElementById("worldwide-section");
-  const wrap = document.getElementById("worldwide-list");
-  wrap.innerHTML = "";
-
-  if (cafes.length === 0) {
-    section.style.display = "none";
-    return;
-  }
-  section.style.display = "block";
-
-  const withDistance = cafes.map(c => ({ ...c, dist: distanceMiles(userLat, userLng, c.lat, c.lng) }));
-  withDistance.sort((a, b) => a.dist - b.dist);
-
-  withDistance.slice(0, 10).forEach(c => {
-    const div = document.createElement("div");
-    div.className = "rc-card";
-    div.innerHTML = `
-      <div class="rc-name">${c.name}</div>
-      <div class="rc-addr">📍 ${c.address || "Address not listed"} · ${c.dist.toFixed(1)} mi away</div>
-      <div class="rc-links">
-        ${c.link ? `<a class="rc-link" href="${c.link}" target="_blank" rel="noopener">View on Repair Café →</a>` : ""}
-        ${c.external_link ? `<a class="rc-link" href="${c.external_link}" target="_blank" rel="noopener">Website →</a>` : ""}
-      </div>
-    `;
-    wrap.appendChild(div);
-  });
-}
-
 function distanceMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.8;
   const toRad = d => (d * Math.PI) / 180;
@@ -1005,7 +992,7 @@ function distanceMiles(lat1, lng1, lat2, lng2) {
 async function findNearest() {
   const input = document.getElementById("address-input");
   const address = input.value.trim();
-  const radius = document.getElementById("radius-select").value;
+  const radius = parseInt(document.getElementById("radius-select").value, 10);
   const status = document.getElementById("nearest-status");
   const btn = document.getElementById("find-nearest-btn");
   if (!address) { status.textContent = "Enter an address first."; status.classList.add("error"); return; }
@@ -1018,17 +1005,14 @@ async function findNearest() {
     const { lat, lng } = await geocodeAddress(address);
     userDistances = {};
     EVENTS.forEach(e => { userDistances[e.id] = distanceMiles(lat, lng, e.lat, e.lng); });
-    const closest = EVENTS.reduce((a, b) => (userDistances[a.id] < userDistances[b.id] ? a : b));
+    activeRadius = radius;
 
-    const worldwideCafes = await fetchWorldwideRepairCafes(lat, lng, radius);
-    renderWorldwideResults(worldwideCafes, lat, lng);
-
-    if (userDistances[closest.id] < 100) {
-      status.textContent = `Closest scheduled event: ${closest.name.split("—")[1]?.trim() || closest.name} — ${userDistances[closest.id].toFixed(1)} mi away`;
-    } else if (worldwideCafes.length) {
-      status.textContent = `Found ${worldwideCafes.length} Repair Café group${worldwideCafes.length === 1 ? "" : "s"} near you below.`;
+    const withinRadius = EVENTS.filter(e => userDistances[e.id] <= radius);
+    if (withinRadius.length === 0) {
+      const closest = EVENTS.reduce((a, b) => (userDistances[a.id] < userDistances[b.id] ? a : b));
+      status.textContent = `No events within ${radius} miles. Closest is ${userDistances[closest.id].toFixed(1)} mi away — try a bigger radius.`;
     } else {
-      status.textContent = "No Silicon Valley events or nearby Repair Café groups found for that location.";
+      status.textContent = `${withinRadius.length} event${withinRadius.length === 1 ? "" : "s"} within ${radius} miles.`;
     }
     renderEvents();
   } catch (err) {
@@ -1044,15 +1028,20 @@ async function renderEvents() {
   const list = document.getElementById("events-list");
   list.innerHTML = "";
 
-  let sorted = [...EVENTS];
-  if (userDistances) {
-    sorted.sort((a, b) => userDistances[a.id] - userDistances[b.id]);
-  } else {
-    sorted.sort((a, b) => a.date.localeCompare(b.date));
+  // If a search has been run, only show events within the selected
+  // radius, sorted closest-first. Otherwise show everything sorted by
+  // date, same as before any search.
+  let sorted = userDistances
+    ? EVENTS.filter(e => userDistances[e.id] <= activeRadius).sort((a, b) => userDistances[a.id] - userDistances[b.id])
+    : [...EVENTS].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (userDistances && sorted.length === 0) {
+    list.innerHTML = '<p class="empty-note">No events within that radius. Try a bigger distance above.</p>';
+    return;
   }
 
-  const nearestId = userDistances
-    ? Object.entries(userDistances).sort((a, b) => a[1] - b[1])[0][0]
+  const nearestId = userDistances && sorted.length
+    ? sorted[0].id
     : null;
 
   sorted.forEach(e => {
