@@ -518,7 +518,7 @@
       <button class="chat-send" id="chat-send-btn" onclick="sendChat()">➤</button>
     </div>
     <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelected(event)">
-    <div class="ai-disclaimer">FixIt Bot matches keywords against common repairs and real iFixit guides -- it's not a live AI chat. For anything involving mains power, gas, or batteries, bring it to a coach in person.</div>
+    <div class="ai-disclaimer">FixIt Bot gives general guidance, not a guarantee. For anything involving mains power, gas, or batteries, bring it to a coach in person.</div>
   </div>
 
   <div class="tabbar">
@@ -630,52 +630,171 @@ const TIME_SLOTS = [
   "Thu 6:00 PM", "Thu 6:30 PM", "Sat 10:00 AM", "Sat 10:30 AM",
 ];
 
-// Canned troubleshooting steps per device category, used by the
-// rule-based FixIt Bot below. These are general, safe starting points --
-// real diagnosis for anything beyond "check the obvious stuff" should
-// come from the linked iFixit guides or a human coach.
-const DEVICE_TIPS = {
-  "rice cooker": [
-    "Check the outlet and cord for damage -- try a different outlet.",
-    "Make sure the inner pot is seated flat and the lid latch is fully closed.",
-    "If it powers on but won't heat, the thermal fuse may have tripped.",
-  ],
-  "vacuum": [
-    "Empty the dust bin or check if the bag is full.",
-    "Check the hose and brush roll for clogs or tangled hair/string.",
-    "Inspect the belt -- a snapped belt is a common cause of no suction.",
-  ],
-  "blender": [
-    "Check that the pitcher is locked in correctly -- most blenders won't run if it's misaligned.",
-    "Look at the drive coupling (the rubber piece under the pitcher) for wear.",
-    "If the motor hums but the blade doesn't spin, the coupling has likely worn out.",
-  ],
-  "toaster": [
-    "Unplug it, then check if the carriage lever physically latches down.",
-    "Crumbs can jam the mechanism -- try turning it upside down and gently shaking it out.",
-    "If it won't stay down at all, the electromagnet that holds it may be dirty or failing.",
-  ],
-  "laptop": [
-    "Try a different outlet and, if possible, a different charger cable.",
-    "Check the charging port for lint or bent pins.",
-    "If it charges only at certain cable angles, the DC jack may have a loose solder joint.",
-  ],
-  "phone": [
-    "Try a different cable and adapter -- cables are the most common failure point.",
-    "Check the charging port for lint (a toothpick works well, gently).",
-    "If the screen is cracked but touch still works, it's often a display-only repair.",
-  ],
-  "zipper": [
-    "If it separates but doesn't snag, the slider is often just worn out and replaceable.",
-    "If it's stuck, try rubbing a pencil (graphite) or a bit of soap along the teeth.",
-    "A missing bottom stop is a common, easy fix with pliers and a new stop.",
-  ],
-};
+// Canned troubleshooting steps per device category, used as grounding
+// context fed to the AI below (not shown directly to the user as a
+// canned reply -- the AI paraphrases and reasons with these).
+const DEVICE_TIPS = [
+  {
+    label: "rice cooker",
+    keywords: ["rice cooker"],
+    tips: [
+      "Check the outlet and cord for damage -- try a different outlet.",
+      "Make sure the inner pot is seated flat and the lid latch is fully closed.",
+      "If it powers on but won't heat, the thermal fuse may have tripped.",
+    ],
+  },
+  {
+    label: "vacuum",
+    keywords: ["vacuum", "hoover"],
+    tips: [
+      "Empty the dust bin or check if the bag is full.",
+      "Check the hose and brush roll for clogs or tangled hair/string.",
+      "Inspect the belt -- a snapped belt is a common cause of no suction.",
+    ],
+  },
+  {
+    label: "blender",
+    keywords: ["blender", "smoothie maker"],
+    tips: [
+      "Check that the pitcher is locked in correctly -- most blenders won't run if it's misaligned.",
+      "Look at the drive coupling (the rubber piece under the pitcher) for wear.",
+      "If the motor hums but the blade doesn't spin, the coupling has likely worn out.",
+    ],
+  },
+  {
+    label: "toaster",
+    keywords: ["toaster"],
+    tips: [
+      "Unplug it, then check if the carriage lever physically latches down.",
+      "Crumbs can jam the mechanism -- try turning it upside down and gently shaking it out.",
+      "If it won't stay down at all, the electromagnet that holds it may be dirty or failing.",
+    ],
+  },
+  {
+    label: "laptop",
+    keywords: ["laptop", "notebook computer", "chromebook", "macbook"],
+    tips: [
+      "Try a different outlet and, if possible, a different charger cable.",
+      "Check the charging port for lint or bent pins.",
+      "If it charges only at certain cable angles, the DC jack may have a loose solder joint.",
+    ],
+  },
+  {
+    label: "phone",
+    keywords: ["phone", "iphone", "smartphone", "cracked screen", "phone screen", "screen protector"],
+    tips: [
+      "Try a different cable and adapter -- cables are the most common failure point.",
+      "Check the charging port for lint (a toothpick works well, gently).",
+      "If the screen is cracked but touch still works, it's often a display-only repair -- a screen replacement kit or a coach can help with the actual swap.",
+    ],
+  },
+  {
+    label: "tablet",
+    keywords: ["tablet", "ipad"],
+    tips: [
+      "Try a different cable and outlet -- charging issues are usually the cable, not the tablet.",
+      "If the screen is unresponsive in spots, it may be a digitizer issue separate from the display itself.",
+      "A cracked screen that still responds to touch is often a display-only repair.",
+    ],
+  },
+  {
+    label: "headphones",
+    keywords: ["headphones", "earbuds", "earphones", "airpods"],
+    tips: [
+      "Check for lint or debris in the charging contacts (for wireless) or the plug (for wired).",
+      "If only one side works, try the other earbud in the opposite slot to rule out a pairing issue.",
+      "For wired headphones, gently wiggle the cable near the jack -- a crackle there points to a broken wire, often fixable by re-soldering.",
+    ],
+  },
+  {
+    label: "coffee maker",
+    keywords: ["coffee maker", "coffee machine", "espresso machine"],
+    tips: [
+      "Run a vinegar-water descaling cycle -- mineral buildup is the most common cause of slow brewing or leaks.",
+      "Check that the water reservoir is seated correctly and the valve underneath isn't clogged.",
+      "If it won't power on at all, check the outlet and the internal thermal fuse, similar to other small appliances.",
+    ],
+  },
+  {
+    label: "hair dryer",
+    keywords: ["hair dryer", "blow dryer"],
+    tips: [
+      "Clean the back air intake screen -- a clogged filter is the most common cause of overheating shutoffs.",
+      "Check the cord near the handle for fraying, a very common failure point from repeated bending.",
+      "If it blows cold air only, the heating element itself may have failed.",
+    ],
+  },
+  {
+    label: "microwave",
+    keywords: ["microwave"],
+    tips: [
+      "Check the door latch -- most microwaves refuse to run at all if the door isn't sensed as fully closed.",
+      "If the turntable doesn't spin, check the small roller/drive coupler underneath it before assuming the motor failed.",
+      "Anything involving the high-voltage capacitor inside is not a DIY fix -- bring it to a coach in person.",
+    ],
+  },
+  {
+    label: "printer",
+    keywords: ["printer"],
+    tips: [
+      "Run the manufacturer's built-in cleaning cycle first -- most print-quality issues are clogged nozzles, not hardware failure.",
+      "Check for small torn paper scraps jammed in the feed path, even after a visible jam looks cleared.",
+      "If it won't connect at all, try a direct USB cable to rule out a Wi-Fi/network issue before assuming it's broken.",
+    ],
+  },
+  {
+    label: "speaker",
+    keywords: ["speaker", "bluetooth speaker"],
+    tips: [
+      "Try a factory reset (usually holding power + volume down) -- this fixes a surprising number of pairing issues.",
+      "Check the charging port for lint or corrosion if it won't charge.",
+      "Crackling or distorted sound often means a blown driver, which usually needs a coach's help to assess.",
+    ],
+  },
+  {
+    label: "bike",
+    keywords: ["bike", "bicycle"],
+    tips: [
+      "For a chain that skips or slips, check chain wear with a chain checker tool before assuming it's the derailleur.",
+      "Squeaky brakes are often just dirt/oil on the rim or pads -- clean both with isopropyl alcohol.",
+      "A wobbling wheel is usually just loose spoke tension, which a bike-savvy coach can true fairly quickly.",
+    ],
+  },
+  {
+    label: "watch",
+    keywords: ["watch", "clock"],
+    tips: [
+      "For a battery-powered watch that stopped, the battery is the most common and easiest fix.",
+      "If the second hand moves in quick, tiny jumps, that's often a low-battery signal even before it fully stops.",
+      "For mechanical watches or clocks, an experienced coach's hands-on look is usually needed -- these have delicate internals.",
+    ],
+  },
+  {
+    label: "game console",
+    keywords: ["game console", "playstation", "xbox", "nintendo switch"],
+    tips: [
+      "Check the charging port for lint or debris, especially on handheld/portable consoles.",
+      "Overheating shutdowns are often just a clogged fan vent -- a can of compressed air can help.",
+      "For controller drift, most of the time this is fixable by cleaning the joystick module, not replacing the whole controller.",
+    ],
+  },
+  {
+    label: "zipper",
+    keywords: ["zipper", "zip", "jacket zip"],
+    tips: [
+      "If it separates but doesn't snag, the slider is often just worn out and replaceable.",
+      "If it's stuck, try rubbing a pencil (graphite) or a bit of soap along the teeth.",
+      "A missing bottom stop is a common, easy fix with pliers and a new stop.",
+    ],
+  },
+];
 
 function lookupDeviceTips(query) {
   const q = query.toLowerCase();
-  for (const [keyword, tips] of Object.entries(DEVICE_TIPS)) {
-    if (q.includes(keyword)) return { keyword, tips };
+  for (const entry of DEVICE_TIPS) {
+    if (entry.keywords.some(kw => q.includes(kw))) {
+      return { keyword: entry.label, tips: entry.tips };
+    }
   }
   return null;
 }
@@ -740,19 +859,11 @@ function goTab(name) {
   const screenEl = document.getElementById("screen-" + name);
   if (screenEl) screenEl.scrollTop = 0;
 
-  // The chat footer (input bar) only makes sense on the bot tab -- show
-  // or hide it, then recompute how much bottom padding #screen-bot needs
-  // so the footer never overlaps the last message in the log.
   const footer = document.getElementById("chat-footer");
   footer.style.display = name === "bot" ? "block" : "none";
   if (name === "bot") layoutChatFooter();
 }
 
-// Measures the real, current height of the fixed tab bar and chat
-// footer, then positions the footer directly above the tab bar and
-// gives #screen-bot enough padding-bottom to scroll fully clear of
-// both. Re-run whenever the footer's height can change (photo preview
-// shown/hidden, window resized) so the reserved space stays accurate.
 function layoutChatFooter() {
   const tabbar = document.querySelector(".tabbar");
   const footer = document.getElementById("chat-footer");
@@ -788,9 +899,21 @@ async function renderHome() {
 
 /* =========================================================
    AI BOT (real Claude API call, grounded with real iFixit +
-   Open Repair Alliance data)
+   Open Repair Alliance data + our own device-tip knowledge base)
    ========================================================= */
 let pendingImage = null; // { dataUrl, base64, mediaType } or null
+let chatHistory = []; // full conversation, sent with each request for multi-turn context
+
+const SYSTEM_PROMPT = `You are FixIt Bot, a friendly, encouraging repair-diagnostic assistant inside the FixItFlow app. Your mission is to help people fix household items instead of throwing them away.
+
+Guidelines:
+- Ask short clarifying questions if the problem is vague (device type, what it's doing/not doing, any sounds/smells/error lights).
+- Give concrete, step-by-step troubleshooting grounded in common repair knowledge for household items (rice cookers, vacuums, blenders, toasters, laptops, phones, tablets, headphones, coffee makers, hair dryers, microwaves, printers, speakers, bikes, watches, game consoles, zippers/textiles, and similar).
+- Keep replies concise -- under about 120 words -- and easy to follow for someone with no repair experience.
+- For anything involving mains-voltage electrical work beyond unplugging the item, gas appliances, swollen or damaged lithium batteries, microwave capacitors, or other real safety risk, tell them to stop and bring it to a Repair Café coach in person rather than doing it themselves.
+- When it fits naturally, mention they can register for a free local Repair Café event (Events tab) or book a 1-on-1 coach (Coach tab) in the app for hands-on help.
+- Users may attach a photo of the broken item. Use visible details in the photo (brand, model, visible damage, corrosion, frayed wires, cracks, etc.) to inform your diagnosis and mention what you can see.
+- Stay warm and encouraging about repair and reuse, but don't be preachy about it.`;
 
 // Resizes/compresses a photo client-side before sending, so phone photos
 // (often 3000px+) don't bloat the API payload. Always outputs JPEG.
@@ -886,7 +1009,7 @@ function renderBubble(role, text, imageDataUrl) {
 }
 
 function initChat() {
-  renderBubble("bot", "Hi! I'm FixIt Bot. Tell me what's broken (e.g. \"rice cooker\" or \"vacuum\") and I'll pull up tips, real repair guides, and community success rates.");
+  renderBubble("bot", "Hi! I'm FixIt Bot. Tell me what's broken and what it's doing, and I'll help you figure out what's wrong.");
 }
 
 function sendSuggestion(text) {
@@ -904,62 +1027,89 @@ async function sendChat() {
   clearPendingPhoto();
   document.getElementById("chat-suggestions").style.display = "none";
 
+  const captionText = text || "What's wrong with this item?";
   renderBubble("user", text, photo ? photo.dataUrl : null);
+
+  const userContent = photo
+    ? [
+        { type: "image", source: { type: "base64", media_type: photo.mediaType, data: photo.base64 } },
+        { type: "text", text: captionText },
+      ]
+    : text;
+  chatHistory.push({ role: "user", content: userContent });
 
   const sendBtn = document.getElementById("chat-send-btn");
   sendBtn.disabled = true;
-  const typingBubble = renderBubble("bot", "Looking that up...");
+  const typingBubble = renderBubble("bot", "FixIt Bot is thinking...");
   typingBubble.classList.add("typing");
 
-  // Rule-based response: match the device keyword, pull real canned
-  // tips, a real repair-success stat, and real live iFixit guide
-  // search results. No LLM call -- deterministic and free to run as
-  // many times as you want while testing.
-  const [ifixitGuides, stat] = text
-    ? await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))])
-    : [[], null];
-  const deviceMatch = text ? lookupDeviceTips(text) : null;
-
-  typingBubble.remove();
-
-  let reply;
-  if (photo && !text) {
-    reply = "I can see you attached a photo, but I can't analyze images myself -- could you describe what's wrong in a sentence or two? That'll help me point you to the right tips.";
-  } else if (deviceMatch) {
-    reply = `Here's what usually causes this with a ${deviceMatch.keyword}:\n\n` +
-      deviceMatch.tips.map((t, i) => `${i + 1}. ${t}`).join("\n");
-    if (stat) {
-      reply += `\n\nFor context: ${stat.overall}% of ${stat.label.toLowerCase()} repairs at real community events succeed, based on the Open Repair Alliance's dataset.`;
-    }
-    reply += "\n\nIf that doesn't get you there, a free Repair Café or a 1-on-1 coach can help hands-on -- check the Events or Coach tab.";
-  } else {
-    reply = "I don't have specific tips for that yet, but here's what I'd try: check the power/battery connection first, then look for anything visibly loose, cracked, or disconnected.";
-    if (ifixitGuides.length) {
-      reply += " I did find some real repair guides that might match below.";
-    } else {
-      reply += " For anything trickier, a free Repair Café or a 1-on-1 coach can take a real look -- check the Events or Coach tab.";
-    }
+  let ifixitGuides = [];
+  let stat = null;
+  let deviceMatch = null;
+  if (text) {
+    [ifixitGuides, stat] = await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))]);
+    deviceMatch = lookupDeviceTips(text);
   }
 
-  renderBubble("bot", reply);
-
+  let groundingNote = "";
+  if (deviceMatch) {
+    groundingNote += `\n\n[Our own curated tips for a ${deviceMatch.keyword}: ${deviceMatch.tips.join(" ")} Feel free to draw on these, in your own words.]`;
+  }
   if (ifixitGuides.length) {
-    const log = document.getElementById("chat-log");
-    const linkRow = document.createElement("div");
-    linkRow.className = "suggest-row";
-    linkRow.style.marginTop = "-4px";
-    ifixitGuides.slice(0, 2).forEach(g => {
-      const a = document.createElement("a");
-      a.href = g.url; a.target = "_blank"; a.rel = "noopener";
-      a.className = "suggest-chip";
-      a.style.textDecoration = "none";
-      a.textContent = "🔗 " + g.title;
-      linkRow.appendChild(a);
-    });
-    log.appendChild(linkRow);
+    groundingNote += "\n\n[Real iFixit guides found for this: " +
+      ifixitGuides.map(g => `"${g.title}" (${g.url})`).join("; ") +
+      ". Mention the most relevant one by name and link if it fits naturally.]";
+  }
+  if (stat) {
+    groundingNote += `\n\n[Real data point: in the Open Repair Alliance's community dataset, ${stat.label} repairs at community events succeed ${stat.overall}% of the time (n=${stat.overallN}). You can mention this stat if it's encouraging or relevant, but don't force it in.]`;
   }
 
-  sendBtn.disabled = false;
+  let apiLastContent = userContent;
+  if (groundingNote) {
+    apiLastContent = photo
+      ? [userContent[0], { type: "text", text: captionText + groundingNote }]
+      : text + groundingNote;
+  }
+  const apiMessages = chatHistory.slice(0, -1).concat([{ role: "user", content: apiLastContent }]);
+
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system: SYSTEM_PROMPT,
+        messages: apiMessages,
+      }),
+    });
+    const data = await response.json();
+    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text);
+    const reply = textBlocks.join("\n").trim() || "Sorry, I didn't catch that -- could you try rephrasing?";
+
+    typingBubble.remove();
+    renderBubble("bot", reply);
+    chatHistory.push({ role: "assistant", content: reply });
+
+    if (ifixitGuides.length) {
+      const log = document.getElementById("chat-log");
+      const linkRow = document.createElement("div");
+      linkRow.className = "suggest-row";
+      linkRow.style.marginTop = "-4px";
+      ifixitGuides.slice(0, 2).forEach(g => {
+        const a = document.createElement("a");
+        a.href = g.url; a.target = "_blank"; a.rel = "noopener";
+        a.className = "suggest-chip";
+        a.style.textDecoration = "none";
+        a.textContent = "🔗 " + g.title;
+        linkRow.appendChild(a);
+      });
+      log.appendChild(linkRow);
+    }
+  } catch (err) {
+    typingBubble.remove();
+    renderBubble("bot", "I'm having trouble connecting right now. In the meantime, try the Events tab to find a Repair Café coach who can help in person.");
+  } finally {
+    sendBtn.disabled = false;
+  }
 }
 
 /* =========================================================
@@ -968,10 +1118,6 @@ async function sendChat() {
 let userDistances = null; // { eventId: miles } after a successful address search
 let activeRadius = null; // the radius (miles) selected at the time of the last search
 
-// Calls our own backend, which proxies to OpenStreetMap's Nominatim
-// geocoder server-side (also lets the server set a proper User-Agent
-// header, which Nominatim's usage policy asks for and a browser can't
-// set on outgoing fetches).
 async function geocodeAddress(address) {
   const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
   if (!resp.ok) throw new Error("Geocoding request failed");
@@ -979,7 +1125,6 @@ async function geocodeAddress(address) {
   return { lat: data.lat, lng: data.lng };
 }
 
-// Haversine distance in miles between two lat/lng points.
 function distanceMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.8;
   const toRad = d => (d * Math.PI) / 180;
@@ -1028,9 +1173,6 @@ async function renderEvents() {
   const list = document.getElementById("events-list");
   list.innerHTML = "";
 
-  // If a search has been run, only show events within the selected
-  // radius, sorted closest-first. Otherwise show everything sorted by
-  // date, same as before any search.
   let sorted = userDistances
     ? EVENTS.filter(e => userDistances[e.id] <= activeRadius).sort((a, b) => userDistances[a.id] - userDistances[b.id])
     : [...EVENTS].sort((a, b) => a.date.localeCompare(b.date));
@@ -1266,7 +1408,6 @@ async function bookCoach() {
   const coach = roster.find(c => c.id === selectedCoachId);
   if (!coach) { showToast("That coach is no longer available"); return; }
 
-  // Reserve the slot in shared storage so no one else can double-book it.
   const booked = await storageGet("coaches:booked", true, []);
   booked.push({ coachId: coach.id, slot: selectedSlot, ts: Date.now() });
   await storageSet("coaches:booked", booked, true);
@@ -1289,7 +1430,6 @@ async function bookCoach() {
   renderMyBookings();
 }
 
-/* -------- adding a new coach to the shared roster -------- */
 function renderNewCoachSlots() {
   const wrap = document.getElementById("new-coach-slots");
   wrap.innerHTML = "";
@@ -1389,9 +1529,6 @@ window.addEventListener("DOMContentLoaded", () => {
   renderMyBookings();
   renderDonations();
 
-  // Register the service worker for offline resilience + installability.
-  // Safe to no-op if unsupported (older browsers) or if served over
-  // plain HTTP in local dev (service workers require HTTPS or localhost).
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => {
       console.warn("Service worker registration failed:", err);
