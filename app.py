@@ -3,21 +3,25 @@ app.py
 ------
 FixItFlow backend.
 
-Replaces two things the Claude-artifact version relied on that only
+Replaces three things the Claude-artifact version relied on that only
 work inside Claude.ai:
   1. window.storage           -> /api/storage  (real SQLite, see db.py)
-  2. direct fetch to iFixit / -> /api/ifixit-search, /api/geocode
+  2. direct fetch to Claude   -> /api/chat      (server holds the API key)
+  3. direct fetch to iFixit / -> /api/ifixit-search, /api/geocode
      Nominatim from the browser  (proxied server-side, avoids any CORS
                                    issues and lets us set a proper
                                    User-Agent for Nominatim's usage policy)
 
-The FixIt Bot chat is rule-based (keyword matching against real iFixit
-guide search results + real Open Repair Alliance stats), not a live
-LLM call -- this avoids any API billing risk entirely, which mattered
-more than a fancier chat for a CAC submission on a tight budget.
+The FixIt Bot chat calls the real Claude API, grounded with real live
+iFixit guide search results and real Open Repair Alliance success-rate
+stats so its answers stay factual rather than just improvised.
 
 Run locally:      python app.py
 
+Required environment variable:
+  ANTHROPIC_API_KEY   -- from console.anthropic.com. Without it, the
+                          chat endpoint returns a clear error instead
+                          of crashing.
 Optional environment variable:
   FLASK_SECRET_KEY    -- any random string; used to sign session cookies
                           that identify "this browser" for personal
@@ -35,6 +39,10 @@ from db import init_db, kv_get, kv_set
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
 
 init_db()
 
@@ -88,6 +96,39 @@ def storage_set():
 
 
 # ---------------------------------------------------------------------
+# Claude API proxy (keeps the API key server-side, off the browser)
+# ---------------------------------------------------------------------
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
+
+    body = request.get_json(force=True)
+    messages = body.get("messages", [])
+    system = body.get("system", "")
+
+    try:
+        resp = requests.post(
+            ANTHROPIC_URL,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": ANTHROPIC_VERSION,
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1000,
+                "system": system,
+                "messages": messages,
+            },
+            timeout=30,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except requests.RequestException as e:
+        return jsonify({"error": str(e)}), 502
+
+
+# ---------------------------------------------------------------------
 # iFixit search proxy (public endpoint, but proxying avoids any CORS
 # uncertainty and keeps all outbound calls in one place)
 # ---------------------------------------------------------------------
@@ -138,66 +179,6 @@ def geocode():
         return jsonify({"lat": float(results[0]["lat"]), "lng": float(results[0]["lon"])})
     except (requests.RequestException, ValueError, KeyError):
         return jsonify({"error": "Geocoding failed"}), 502
-
-
-# ---------------------------------------------------------------------
-# Repair Café worldwide location proxy. This is the Repair Café
-# Foundation's real, official, public API (no key needed) covering
-# their global network of repair groups -- see
-# repaircafe.org/en/api/ for the source documentation.
-#
-# Important limitation: this API returns *locations* (a repair group's
-# name, address, contact link), not specific dated upcoming events --
-# most Repair Cafés meet on a recurring schedule (e.g. "second
-# Saturday of the month") that varies per location, so exact dates
-# require following the link to that café's own page.
-# ---------------------------------------------------------------------
-@app.route("/api/repair-cafes", methods=["GET"])
-def repair_cafes():
-    try:
-        lat = float(request.args.get("lat", ""))
-        lng = float(request.args.get("lng", ""))
-    except ValueError:
-        return jsonify({"error": "lat and lng are required"}), 400
-
-    radius_miles = float(request.args.get("radius", 30))
-    delta_lat = radius_miles / 69.0
-    # longitude degrees shrink as you move away from the equator
-    delta_lng = radius_miles / (69.0 * max(0.1, __import__("math").cos(lat * 3.14159265 / 180)))
-
-    try:
-        resp = requests.get(
-            "https://www.repaircafe.org/wp-json/v1/map",
-            params={
-                "northeast": f"{lat + delta_lat},{lng + delta_lng}",
-                "southwest": f"{lat - delta_lat},{lng - delta_lng}",
-            },
-            timeout=8,
-        )
-        if not resp.ok:
-            return jsonify({"results": []})
-        data = resp.json()
-        results = []
-        for loc in data if isinstance(data, list) else []:
-            coord = loc.get("coordinate", "")
-            parts = coord.split(",")
-            if len(parts) != 2:
-                continue
-            try:
-                loc_lat, loc_lng = float(parts[0]), float(parts[1])
-            except ValueError:
-                continue
-            results.append({
-                "name": loc.get("name", "Repair Café"),
-                "address": loc.get("address", ""),
-                "link": loc.get("link", ""),
-                "external_link": loc.get("external_link", ""),
-                "lat": loc_lat,
-                "lng": loc_lng,
-            })
-        return jsonify({"results": results})
-    except (requests.RequestException, ValueError):
-        return jsonify({"results": []})
 
 
 if __name__ == "__main__":
