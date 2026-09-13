@@ -476,32 +476,38 @@
 
   <!-- ================= DONATE ================= -->
   <div class="screen" id="screen-donate">
-    <h2 class="section-title">Donate or find spare parts</h2>
-    <h2 class="section-title">Available now <span style="font-weight:400; text-transform:none; letter-spacing:0;">(shared community listings)</span></h2>
-    <div id="donation-list"></div>
-    <button class="fab-btn" onclick="openSheet('sheet-donate')">+ Post a listing</button>
-  </div>
+    <h2 class="section-title">Where to donate & recycle</h2>
+    <p>Donating functional items that you don't have any use for is a great way to keep our environment clean. When disposing of un-reusable items, there can be certain ways to dispose of things. Down below are some guidelines and restrictions for different items.</p>
 
-  <!-- Post-a-listing sheet -->
-  <div class="sheet-backdrop" id="sheet-backdrop-donate" onclick="closeSheet('sheet-donate')"></div>
-  <div class="bottom-sheet" id="sheet-donate">
-    <div class="sheet-handle"></div>
-    <h2 class="section-title">Post a listing</h2>
-    <label class="f">Category</label>
-    <select class="f-input" id="donate-category">
-      <option>Small appliance parts</option>
-      <option>Electronics / cables</option>
-      <option>Textile / sewing</option>
-      <option>Tools</option>
-      <option>Other</option>
-    </select>
-    <label class="f">What are you giving away?</label>
-    <input type="text" class="f-input" id="donate-title" placeholder="e.g. Assorted zipper sliders">
-    <label class="f">Details</label>
-    <input type="text" class="f-input" id="donate-desc" placeholder="Condition, quantity, etc.">
-    <label class="f">General area</label>
-    <input type="text" class="f-input" id="donate-loc" placeholder="e.g. Sunnyvale">
-    <button class="donate-btn" onclick="postDonation()">Post listing</button>
+    <h2 class="section-title">Still usable? Donate it</h2>
+    <div class="card">
+      <div class="listing-title">Goodwill</div>
+      <div class="listing-desc">They will accept clothing, shoes, small furniture, electronics, household goods.</div>
+    </div>
+    <div class="card">
+      <div class="listing-title">Habitat for Humanity ReStore</div>
+      <div class="listing-desc">They accept furniture, appliances, home decor, and building materials.</div>
+    </div>
+
+    <h2 class="section-title">Broken electronics? Recycle it right</h2>
+    <div class="card">
+      <div class="listing-title">Green E-Waste Recycling Center</div>
+      <div class="listing-desc">ISO-certified e-waste recycler in Milpitas — free drop-off for California residents.</div>
+    </div>
+    <div class="card">
+      <div class="listing-title">Zero Waste Silicon Valley</div>
+      <div class="listing-desc">Free e-waste drop-off, with free pickup if you have 3 or more items.</div>
+    </div>
+
+    <h2 class="section-title">Worn-out clothing? Recycle the fabric</h2>
+    <div class="card">
+      <div class="listing-title">H&M Garment Collection</div>
+      <div class="listing-desc">Accepts clothing and textiles in any condition — even ripped or stained — at store locations.</div>
+    </div>
+    <div class="card">
+      <div class="listing-title">Uniqlo Garment Recycling</div>
+      <div class="listing-desc">Same as H&M — takes textiles in any condition at store locations.</div>
+    </div>
   </div>
 
 
@@ -630,9 +636,13 @@ const TIME_SLOTS = [
   "Thu 6:00 PM", "Thu 6:30 PM", "Sat 10:00 AM", "Sat 10:30 AM",
 ];
 
-// Canned troubleshooting steps per device category, used as grounding
-// context fed to the AI below (not shown directly to the user as a
-// canned reply -- the AI paraphrases and reasons with these).
+// Canned troubleshooting steps per device category, used by the
+// rule-based FixIt Bot below. Each entry lists several keywords/phrases
+// that should all match the same tips -- so "cracked screen" and
+// "phone won't charge" both correctly land on the phone entry, not
+// just the literal word "phone". These are general, safe starting
+// points -- real diagnosis for anything beyond "check the obvious
+// stuff" should come from the linked iFixit guides or a human coach.
 const DEVICE_TIPS = [
   {
     label: "rice cooker",
@@ -859,11 +869,19 @@ function goTab(name) {
   const screenEl = document.getElementById("screen-" + name);
   if (screenEl) screenEl.scrollTop = 0;
 
+  // The chat footer (input bar) only makes sense on the bot tab -- show
+  // or hide it, then recompute how much bottom padding #screen-bot needs
+  // so the footer never overlaps the last message in the log.
   const footer = document.getElementById("chat-footer");
   footer.style.display = name === "bot" ? "block" : "none";
   if (name === "bot") layoutChatFooter();
 }
 
+// Measures the real, current height of the fixed tab bar and chat
+// footer, then positions the footer directly above the tab bar and
+// gives #screen-bot enough padding-bottom to scroll fully clear of
+// both. Re-run whenever the footer's height can change (photo preview
+// shown/hidden, window resized) so the reserved space stays accurate.
 function layoutChatFooter() {
   const tabbar = document.querySelector(".tabbar");
   const footer = document.getElementById("chat-footer");
@@ -1030,6 +1048,9 @@ async function sendChat() {
   const captionText = text || "What's wrong with this item?";
   renderBubble("user", text, photo ? photo.dataUrl : null);
 
+  // Build the content block for this turn. If there's a photo, content
+  // must be an array (image block + text block) per the Anthropic API's
+  // multimodal message format; text-only turns stay a plain string.
   const userContent = photo
     ? [
         { type: "image", source: { type: "base64", media_type: photo.mediaType, data: photo.base64 } },
@@ -1043,6 +1064,11 @@ async function sendChat() {
   const typingBubble = renderBubble("bot", "FixIt Bot is thinking...");
   typingBubble.classList.add("typing");
 
+  // Ground the model's answer with real data: live iFixit guide search,
+  // a real repair-success rate from the Open Repair Alliance dataset,
+  // and a match against our own curated device-tip knowledge base if
+  // one exists. All three are appended only to the API payload, not to
+  // what's shown in the user's own chat bubble above.
   let ifixitGuides = [];
   let stat = null;
   let deviceMatch = null;
@@ -1064,6 +1090,9 @@ async function sendChat() {
     groundingNote += `\n\n[Real data point: in the Open Repair Alliance's community dataset, ${stat.label} repairs at community events succeed ${stat.overall}% of the time (n=${stat.overallN}). You can mention this stat if it's encouraging or relevant, but don't force it in.]`;
   }
 
+  // Re-attach the grounding note to just this turn's payload without
+  // mutating what's stored in chatHistory (so future turns don't
+  // accumulate stale notes).
   let apiLastContent = userContent;
   if (groundingNote) {
     apiLastContent = photo
@@ -1073,6 +1102,8 @@ async function sendChat() {
   const apiMessages = chatHistory.slice(0, -1).concat([{ role: "user", content: apiLastContent }]);
 
   try {
+    // Calls our own backend, which holds the real Anthropic API key
+    // server-side -- the browser never sees the key.
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1118,6 +1149,10 @@ async function sendChat() {
 let userDistances = null; // { eventId: miles } after a successful address search
 let activeRadius = null; // the radius (miles) selected at the time of the last search
 
+// Calls our own backend, which proxies to OpenStreetMap's Nominatim
+// geocoder server-side (also lets the server set a proper User-Agent
+// header, which Nominatim's usage policy asks for and a browser can't
+// set on outgoing fetches).
 async function geocodeAddress(address) {
   const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
   if (!resp.ok) throw new Error("Geocoding request failed");
@@ -1125,6 +1160,7 @@ async function geocodeAddress(address) {
   return { lat: data.lat, lng: data.lng };
 }
 
+// Haversine distance in miles between two lat/lng points.
 function distanceMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.8;
   const toRad = d => (d * Math.PI) / 180;
@@ -1173,6 +1209,9 @@ async function renderEvents() {
   const list = document.getElementById("events-list");
   list.innerHTML = "";
 
+  // If a search has been run, only show events within the selected
+  // radius, sorted closest-first. Otherwise show everything sorted by
+  // date, same as before any search.
   let sorted = userDistances
     ? EVENTS.filter(e => userDistances[e.id] <= activeRadius).sort((a, b) => userDistances[a.id] - userDistances[b.id])
     : [...EVENTS].sort((a, b) => a.date.localeCompare(b.date));
@@ -1408,6 +1447,7 @@ async function bookCoach() {
   const coach = roster.find(c => c.id === selectedCoachId);
   if (!coach) { showToast("That coach is no longer available"); return; }
 
+  // Reserve the slot in shared storage so no one else can double-book it.
   const booked = await storageGet("coaches:booked", true, []);
   booked.push({ coachId: coach.id, slot: selectedSlot, ts: Date.now() });
   await storageSet("coaches:booked", booked, true);
@@ -1430,6 +1470,7 @@ async function bookCoach() {
   renderMyBookings();
 }
 
+/* -------- adding a new coach to the shared roster -------- */
 function renderNewCoachSlots() {
   const wrap = document.getElementById("new-coach-slots");
   wrap.innerHTML = "";
@@ -1471,50 +1512,6 @@ async function addCoach() {
 }
 
 /* =========================================================
-   DONATE
-   ========================================================= */
-async function renderDonations() {
-  const listings = await storageGet("donations:listings", true, []);
-  const el = document.getElementById("donation-list");
-  el.innerHTML = "";
-  if (listings.length === 0) {
-    el.innerHTML = '<p class="empty-note">No listings yet — post the first spare part!</p>';
-    return;
-  }
-  [...listings].reverse().forEach(l => {
-    const div = document.createElement("div");
-    div.className = "listing-card";
-    div.innerHTML = `
-      <div class="listing-cat">${l.category}</div>
-      <div class="listing-title">${l.title}</div>
-      ${l.desc ? `<div class="listing-desc">${l.desc}</div>` : ""}
-      <div class="listing-loc">📍 ${l.location || "Area not specified"}</div>
-    `;
-    el.appendChild(div);
-  });
-}
-
-async function postDonation() {
-  const category = document.getElementById("donate-category").value;
-  const title = document.getElementById("donate-title").value.trim();
-  const desc = document.getElementById("donate-desc").value.trim();
-  const location = document.getElementById("donate-loc").value.trim();
-
-  if (!title) { showToast("Add a title for your listing"); return; }
-
-  const listings = await storageGet("donations:listings", true, []);
-  listings.push({ category, title, desc, location, ts: Date.now() });
-  await storageSet("donations:listings", listings.slice(-100), true);
-
-  showToast("Listing posted — thanks for keeping it out of the landfill!");
-  document.getElementById("donate-title").value = "";
-  document.getElementById("donate-desc").value = "";
-  document.getElementById("donate-loc").value = "";
-  renderDonations();
-  closeSheet("sheet-donate");
-}
-
-/* =========================================================
    INIT
    ========================================================= */
 window.addEventListener("DOMContentLoaded", () => {
@@ -1527,8 +1524,10 @@ window.addEventListener("DOMContentLoaded", () => {
   renderCoachRoster();
   renderNewCoachSlots();
   renderMyBookings();
-  renderDonations();
 
+  // Register the service worker for offline resilience + installability.
+  // Safe to no-op if unsupported (older browsers) or if served over
+  // plain HTTP in local dev (service workers require HTTPS or localhost).
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => {
       console.warn("Service worker registration failed:", err);
