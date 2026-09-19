@@ -332,8 +332,8 @@
     <h2 class="section-title">Get started</h2>
     <div class="quick-grid">
       <div class="quick-tile" onclick="goTab('bot')">
-        <span class="qi">🤖</span>
-        <div class="qt">Ask FixIt Bot</div>
+        <span class="qi">🧑‍🔧</span>
+        <div class="qt">Ask FixIt Coach</div>
         <div class="qd">Diagnose what's broken</div>
       </div>
       <div class="quick-tile" onclick="goTab('events')">
@@ -351,7 +351,7 @@
 
   <!-- ================= AI BOT ================= -->
   <div class="screen" id="screen-bot">
-    <h2 class="section-title">FixIt Bot</h2>
+    <h2 class="section-title">FixIt Coach</h2>
     <div class="chat-log" id="chat-log"></div>
     <div class="suggest-row" id="chat-suggestions">
       <span class="suggest-chip" onclick="sendSuggestion('My rice cooker won\'t turn on')">Rice cooker won't turn on</span>
@@ -463,12 +463,12 @@
       <button class="chat-send" id="chat-send-btn" onclick="sendChat()">➤</button>
     </div>
     <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelected(event)">
-    <div class="ai-disclaimer">FixIt Bot gives general guidance, not a guarantee. For anything involving mains power, gas, or batteries, bring it to a coach in person.</div>
+    <div class="ai-disclaimer">FixIt Coach gives general guidance, not a guarantee. For anything involving mains power, gas, or batteries, bring it to a professional in person.</div>
   </div>
 
   <div class="tabbar">
     <button class="tab-btn active" id="tabbtn-home" onclick="goTab('home')"><span class="ti">🏠</span><span class="tl">Home</span></button>
-    <button class="tab-btn" id="tabbtn-bot" onclick="goTab('bot')"><span class="ti">🤖</span><span class="tl">FixIt Bot</span></button>
+    <button class="tab-btn" id="tabbtn-bot" onclick="goTab('bot')"><span class="ti">🧑‍🔧</span><span class="tl">FixIt Coach</span></button>
     <button class="tab-btn" id="tabbtn-events" onclick="goTab('events')"><span class="ti">📅</span><span class="tl">Events</span></button>
     <button class="tab-btn" id="tabbtn-impact" onclick="goTab('impact')"><span class="ti">♻️</span><span class="tl">Impact</span></button>
     <button class="tab-btn" id="tabbtn-donate" onclick="goTab('donate')"><span class="ti">🎁</span><span class="tl">Donate</span></button>
@@ -965,7 +965,7 @@ function renderBubble(role, text, imageDataUrl) {
 }
 
 function initChat() {
-  renderBubble("bot", "Hi! I'm FixIt Bot. Tell me what's broken and what it's doing, and I'll help you figure out what's wrong.");
+  renderBubble("bot", "Hi! I'm FixIt Coach. Tell me what's broken and what it's doing, and I'll help you figure out what's wrong.");
 }
 
 function sendSuggestion(text) {
@@ -999,7 +999,7 @@ async function sendChat() {
 
   const sendBtn = document.getElementById("chat-send-btn");
   sendBtn.disabled = true;
-  const typingBubble = renderBubble("bot", "FixIt Bot is thinking...");
+  const typingBubble = renderBubble("bot", "FixIt Coach is thinking...");
   typingBubble.classList.add("typing");
 
   // Ground the model's answer with real data: live iFixit guide search,
