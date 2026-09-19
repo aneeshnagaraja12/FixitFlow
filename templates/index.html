@@ -341,11 +341,6 @@
         <div class="qt">Free Repair Events</div>
         <div class="qd">Find a clinic near you</div>
       </div>
-      <div class="quick-tile" onclick="goTab('coach')">
-        <span class="qi">🧑‍🔧</span>
-        <div class="qt">1x1 Coach</div>
-        <div class="qd">Book personal help</div>
-      </div>
       <div class="quick-tile" onclick="goTab('donate')">
         <span class="qi">🎁</span>
         <div class="qt">Spare Parts</div>
@@ -418,62 +413,6 @@
     </div>
   </div>
 
-  <!-- ================= COACH ================= -->
-  <div class="screen" id="screen-coach">
-    <h2 class="section-title">Book a 1x1 FixIt Coach</h2>
-
-    <div class="card">
-      <label class="f">Choose a coach</label>
-      <div id="coach-roster"></div>
-    </div>
-
-    <div class="card">
-      <h2 class="section-title" style="margin-top:0;">My bookings</h2>
-      <div id="my-bookings"></div>
-    </div>
-
-    <button class="fab-btn" onclick="openSheet('sheet-add-coach')">+ Know someone who could coach?</button>
-  </div>
-
-  <!-- Booking sheet: opens when a coach card is tapped -->
-  <div class="sheet-backdrop" id="sheet-backdrop-booking" onclick="closeSheet('sheet-booking')"></div>
-  <div class="bottom-sheet" id="sheet-booking">
-    <div class="sheet-handle"></div>
-    <h2 class="section-title" id="booking-sheet-title">Book a session</h2>
-    <label class="f">Available time slots</label>
-    <div class="slot-grid" id="slot-grid"></div>
-    <label class="f">What's broken?</label>
-    <input type="text" class="f-input" id="coach-device" placeholder="e.g. Blender won't blend">
-    <label class="f">Your name (optional)</label>
-    <input type="text" class="f-input" id="coach-name" placeholder="Guest">
-    <button class="book-btn" id="coach-book-btn" onclick="bookCoach()">Book session →</button>
-  </div>
-
-  <!-- Add-a-coach sheet -->
-  <div class="sheet-backdrop" id="sheet-backdrop-add-coach" onclick="closeSheet('sheet-add-coach')"></div>
-  <div class="bottom-sheet" id="sheet-add-coach">
-    <div class="sheet-handle"></div>
-    <h2 class="section-title">Know someone who could coach?</h2>
-    <p style="font-size:0.82rem; color:var(--muted); margin:0 0 12px; line-height:1.4;">Add them here so people can book real 1-on-1 sessions with them. This is visible to everyone using the app.</p>
-    <label class="f">Their name</label>
-    <input type="text" class="f-input" id="new-coach-name" placeholder="e.g. Priya S.">
-    <label class="f">Specialty</label>
-    <select class="f-input" id="new-coach-specialty">
-      <option value="Small Appliance">Small Appliance (rice cookers, blenders, toasters, vacuums)</option>
-      <option value="Electronics">Electronics (laptops, phones, batteries)</option>
-      <option value="Textile & Sewing">Textile & Sewing (zippers, seams, patches)</option>
-      <option value="General">General (a bit of everything)</option>
-    </select>
-    <label class="f">Short bio (optional)</label>
-    <input type="text" class="f-input" id="new-coach-bio" placeholder="e.g. Retired electrical engineer, 10 yrs at Repair Café SV">
-    <label class="f">Email (for booking notifications)</label>
-    <input type="text" class="f-input" id="new-coach-email" placeholder="coach@example.com">
-    <label class="f">Which time slots are they generally free?</label>
-    <div class="slot-grid" id="new-coach-slots"></div>
-    <p style="font-size:0.7rem; color:var(--muted); margin:-4px 0 12px;">Their email will be visible to whoever books with them, so they can be notified directly.</p>
-    <button class="book-btn" onclick="addCoach()">Add them as a coach</button>
-  </div>
-
   <!-- ================= DONATE ================= -->
   <div class="screen" id="screen-donate">
     <h2 class="section-title">Where to donate & recycle</h2>
@@ -532,7 +471,6 @@
     <button class="tab-btn" id="tabbtn-bot" onclick="goTab('bot')"><span class="ti">🤖</span><span class="tl">FixIt Bot</span></button>
     <button class="tab-btn" id="tabbtn-events" onclick="goTab('events')"><span class="ti">📅</span><span class="tl">Events</span></button>
     <button class="tab-btn" id="tabbtn-impact" onclick="goTab('impact')"><span class="ti">♻️</span><span class="tl">Impact</span></button>
-    <button class="tab-btn" id="tabbtn-coach" onclick="goTab('coach')"><span class="ti">🧑‍🔧</span><span class="tl">Coach</span></button>
     <button class="tab-btn" id="tabbtn-donate" onclick="goTab('donate')"><span class="ti">🎁</span><span class="tl">Donate</span></button>
   </div>
 
@@ -928,8 +866,8 @@ Guidelines:
 - Ask short clarifying questions if the problem is vague (device type, what it's doing/not doing, any sounds/smells/error lights).
 - Give concrete, step-by-step troubleshooting grounded in common repair knowledge for household items (rice cookers, vacuums, blenders, toasters, laptops, phones, tablets, headphones, coffee makers, hair dryers, microwaves, printers, speakers, bikes, watches, game consoles, zippers/textiles, and similar).
 - Keep replies concise -- under about 120 words -- and easy to follow for someone with no repair experience.
-- For anything involving mains-voltage electrical work beyond unplugging the item, gas appliances, swollen or damaged lithium batteries, microwave capacitors, or other real safety risk, tell them to stop and bring it to a Repair Café coach in person rather than doing it themselves.
-- When it fits naturally, mention they can register for a free local Repair Café event (Events tab) or book a 1-on-1 coach (Coach tab) in the app for hands-on help.
+- For anything involving mains-voltage electrical work beyond unplugging the item, gas appliances, swollen or damaged lithium batteries, microwave capacitors, or other real safety risk, tell them to stop and bring it to a real Repair Café event in person rather than doing it themselves.
+- When it fits naturally, mention they can register for a free local Repair Café event (Events tab) for hands-on help.
 - Users may attach a photo of the broken item. Use visible details in the photo (brand, model, visible damage, corrosion, frayed wires, cracks, etc.) to inform your diagnosis and mention what you can see.
 - Stay warm and encouraging about repair and reuse, but don't be preachy about it.`;
 
@@ -1344,172 +1282,6 @@ function renderSuccessStats() {
   });
 }
 
-/* =========================================================
-   COACH
-   ========================================================= */
-let selectedCoachId = null;
-let selectedSlot = null;
-let newCoachSlots = [];
-
-function generateId(prefix) {
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `${prefix}-${Date.now().toString(36)}-${rand}`;
-}
-
-async function renderCoachRoster() {
-  const roster = await storageGet("coaches:roster", true, []);
-  const booked = await storageGet("coaches:booked", true, []);
-  const wrap = document.getElementById("coach-roster");
-  wrap.innerHTML = "";
-
-  if (roster.length === 0) {
-    wrap.innerHTML = '<p class="empty-note">No coaches yet — add someone you know below to get started.</p>';
-    return;
-  }
-
-  roster.forEach(c => {
-    const bookedSlots = booked.filter(b => b.coachId === c.id).map(b => b.slot);
-    const openCount = c.slots.filter(s => !bookedSlots.includes(s)).length;
-
-    const div = document.createElement("div");
-    div.className = "coach-card" + (selectedCoachId === c.id ? " selected" : "");
-    div.innerHTML = `
-      <div class="cc-top"><span class="cc-name">${c.name}</span><span class="cc-spec">${c.specialty}</span></div>
-      ${c.bio ? `<div class="cc-bio">${c.bio}</div>` : ""}
-      <div class="cc-slots">${openCount > 0 ? openCount + " open slot" + (openCount === 1 ? "" : "s") : "Fully booked right now"}</div>
-    `;
-    div.onclick = () => {
-      selectedCoachId = c.id;
-      selectedSlot = null;
-      document.getElementById("booking-sheet-title").textContent = "Book with " + c.name;
-      openSheet("sheet-booking");
-      renderSlots();
-    };
-    wrap.appendChild(div);
-  });
-}
-
-async function renderSlots() {
-  if (!selectedCoachId) return;
-  const roster = await storageGet("coaches:roster", true, []);
-  const coach = roster.find(c => c.id === selectedCoachId);
-  if (!coach) return;
-  const booked = await storageGet("coaches:booked", true, []);
-  const bookedSlots = booked.filter(b => b.coachId === selectedCoachId).map(b => b.slot);
-
-  const wrap = document.getElementById("slot-grid");
-  wrap.innerHTML = "";
-  coach.slots.forEach(slot => {
-    const isBooked = bookedSlots.includes(slot);
-    const btn = document.createElement("button");
-    btn.className = "slot-btn" + (selectedSlot === slot ? " selected" : "");
-    btn.textContent = slot + (isBooked ? " (booked)" : "");
-    btn.disabled = isBooked;
-    if (isBooked) btn.style.opacity = "0.4";
-    btn.onclick = () => { selectedSlot = slot; renderSlots(); };
-    wrap.appendChild(btn);
-  });
-}
-
-async function renderMyBookings() {
-  const bookings = await storageGet("my:bookings", false, []);
-  const el = document.getElementById("my-bookings");
-  el.innerHTML = "";
-  if (bookings.length === 0) {
-    el.innerHTML = '<p class="empty-note">No bookings yet.</p>';
-    return;
-  }
-  [...bookings].reverse().forEach(b => {
-    const div = document.createElement("div");
-    div.className = "booking-item";
-    const mailtoHref = b.coachEmail
-      ? `mailto:${encodeURIComponent(b.coachEmail)}?subject=${encodeURIComponent("FixItFlow session: " + b.device)}&body=${encodeURIComponent(`Hi ${b.coachName},\n\nI booked a FixItFlow coaching session with you:\n\nItem: ${b.device}\nTime: ${b.slot}\nFrom: ${b.bookerName}\n\nLet me know how you'd like to connect (video call, phone, etc).`)}`
-      : null;
-    div.innerHTML = `
-      <div class="bi-top">${b.device}</div>
-      <div class="bi-sub">${b.coachName} (${b.specialty}) · ${b.slot}</div>
-      ${mailtoHref ? `<a class="mailto-link" href="${mailtoHref}">✉️ Notify ${b.coachName.split(" ")[0]}</a>` : ""}
-    `;
-    el.appendChild(div);
-  });
-}
-
-async function bookCoach() {
-  const device = document.getElementById("coach-device").value.trim();
-  const bookerName = document.getElementById("coach-name").value.trim() || "Guest";
-
-  if (!selectedCoachId || !selectedSlot || !device) {
-    showToast("Pick a coach, a time, and describe the item first");
-    return;
-  }
-
-  const roster = await storageGet("coaches:roster", true, []);
-  const coach = roster.find(c => c.id === selectedCoachId);
-  if (!coach) { showToast("That coach is no longer available"); return; }
-
-  // Reserve the slot in shared storage so no one else can double-book it.
-  const booked = await storageGet("coaches:booked", true, []);
-  booked.push({ coachId: coach.id, slot: selectedSlot, ts: Date.now() });
-  await storageSet("coaches:booked", booked, true);
-
-  const bookings = await storageGet("my:bookings", false, []);
-  bookings.push({
-    device, bookerName,
-    coachName: coach.name, specialty: coach.specialty, coachEmail: coach.email,
-    slot: selectedSlot, ts: Date.now(),
-  });
-  await storageSet("my:bookings", bookings, false);
-
-  showToast("Session booked with " + coach.name + "!");
-  document.getElementById("coach-device").value = "";
-  document.getElementById("coach-name").value = "";
-  selectedCoachId = null;
-  selectedSlot = null;
-  closeSheet("sheet-booking");
-  renderCoachRoster();
-  renderMyBookings();
-}
-
-/* -------- adding a new coach to the shared roster -------- */
-function renderNewCoachSlots() {
-  const wrap = document.getElementById("new-coach-slots");
-  wrap.innerHTML = "";
-  TIME_SLOTS.forEach(slot => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "slot-btn" + (newCoachSlots.includes(slot) ? " selected" : "");
-    btn.textContent = slot;
-    btn.onclick = () => {
-      if (newCoachSlots.includes(slot)) newCoachSlots = newCoachSlots.filter(s => s !== slot);
-      else newCoachSlots.push(slot);
-      renderNewCoachSlots();
-    };
-    wrap.appendChild(btn);
-  });
-}
-
-async function addCoach() {
-  const name = document.getElementById("new-coach-name").value.trim();
-  const specialty = document.getElementById("new-coach-specialty").value;
-  const bio = document.getElementById("new-coach-bio").value.trim();
-  const email = document.getElementById("new-coach-email").value.trim();
-
-  if (!name || !email) { showToast("Add at least a name and email"); return; }
-  if (newCoachSlots.length === 0) { showToast("Pick at least one time slot they're free"); return; }
-
-  const roster = await storageGet("coaches:roster", true, []);
-  roster.push({ id: generateId("coach"), name, specialty, bio, email, slots: [...newCoachSlots] });
-  await storageSet("coaches:roster", roster, true);
-
-  showToast(name + " added as a coach!");
-  document.getElementById("new-coach-name").value = "";
-  document.getElementById("new-coach-bio").value = "";
-  document.getElementById("new-coach-email").value = "";
-  newCoachSlots = [];
-  renderNewCoachSlots();
-  renderCoachRoster();
-  closeSheet("sheet-add-coach");
-}
 
 /* =========================================================
    INIT
@@ -1521,9 +1293,6 @@ window.addEventListener("DOMContentLoaded", () => {
   renderLogChips();
   renderImpact();
   renderSuccessStats();
-  renderCoachRoster();
-  renderNewCoachSlots();
-  renderMyBookings();
 
   // Register the service worker for offline resilience + installability.
   // Safe to no-op if unsupported (older browsers) or if served over
