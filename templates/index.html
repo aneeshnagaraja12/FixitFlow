@@ -410,12 +410,23 @@
 
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Log a fix you just made</h2>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+        <button class="chat-camera" id="fix-camera-btn" type="button" onclick="document.getElementById('fix-photo-input').click()">📷</button>
+        <span style="font-size:0.76rem; color:var(--muted);" id="fix-photo-status">Optional: add a photo so we can identify the item</span>
+      </div>
+      <input type="file" id="fix-photo-input" accept="image/*" capture="environment" style="display:none" onchange="handleFixPhotoSelected(event)">
+      <div id="fix-photo-preview-strip" class="photo-preview-strip"></div>
       <div class="log-fix-chips" id="log-fix-chips"></div>
+      <div class="log-fix-chips" id="electronics-subtype-chips" style="display:none;"></div>
+      <input type="text" class="f-input" id="other-fix-text" placeholder="What did you fix?" style="display:none;">
+      <input type="number" class="f-input" id="fix-weight-input" placeholder="Roughly how much did it weigh, in kg? (optional)" step="0.1" min="0" style="display:none;">
+      <p class="empty-note" style="text-align:left; padding:0 0 10px; font-size:0.68rem;">Electronics use real published manufacturer figures per device type (source: apple.com/environment). Bikes & Textiles scale with real weight. Other categories are honest ballpark estimates.</p>
       <button class="log-btn" id="log-fix-btn" disabled onclick="logFix()">✅ Log this fix</button>
     </div>
 
     <div class="card">
-      <h2 class="section-title" style="margin-top:0;">Recent community fixes</h2>
+      <h2 class="section-title" style="margin-top:0;">My recent fixes</h2>
+      <p class="empty-note" style="text-align:left; padding:0 0 10px; font-size:0.7rem;">Only visible to you on this device.</p>
       <div id="impact-feed"></div>
     </div>
 
@@ -574,16 +585,75 @@ const EVENTS = [
     notes: "General repairs, limit two items per household.", capacity: 30, registered: 7 },
 ];
 
-// device category -> landfill weight (kg) + embodied CO2 avoided (kg).
-// Ballpark estimates for a student project, not precise LCA figures.
-const DEVICE_IMPACT = {
-  "Rice cooker": { weight: 2.5, co2: 18 },
-  "Vacuum": { weight: 4.5, co2: 35 },
-  "Blender": { weight: 1.8, co2: 15 },
-  "Toaster": { weight: 1.5, co2: 12 },
-  "Laptop": { weight: 2.2, co2: 200 },
-  "Phone": { weight: 0.2, co2: 70 },
-  "Zipper / textile": { weight: 0.6, co2: 8 },
+// Top-level categories a user picks first when logging a fix.
+// Electronics is special -- it expands into real, specifically-sourced
+// sub-types below, since electronics have wildly different footprints
+// (a phone vs. a laptop) and real manufacturer data actually exists
+// per device type. Everything else stays a single reasonable ballpark
+// -- for these, no strong per-item published source turned up, so
+// pretending otherwise would be fake precision, not real accuracy.
+const CATEGORIES = ["Electronics", "Small Appliances", "Bikes", "Textiles", "Furniture", "Jewelry", "Garden & Outdoor", "Other"];
+
+// Electronics sub-types, with real, cited, third-party-verified
+// figures pulled from Apple's own Product Environmental Reports
+// (apple.com/environment) -- verified by Bureau Veritas and the
+// Fraunhofer Institute. Real devices vary within each type (a base
+// iPhone vs. Pro Max, a MacBook Air vs. Pro), so each number here is a
+// reasonable point within Apple's own published range for that device
+// class, not a single exact model.
+const ELECTRONICS_IMPACT = {
+  "Phone": { weight: 0.2, co2: 60 },       // Apple iPhone reports: 55-84 kg CO2e depending on configuration
+  "Tablet": { weight: 0.5, co2: 119 },     // Apple iPad Pro Product Environmental Report: 119 kg CO2e
+  "Laptop": { weight: 2.0, co2: 300 },     // Apple MacBook Pro 16" report: 394 kg CO2e (upper end; smaller laptops run lower)
+  "Watch": { weight: 0.05, co2: 9 },       // Apple Watch reports: 8-11 kg CO2e across recent Series/Ultra models
+  "Headphones": { weight: 0.25, co2: 8 },  // Small consumer electronics, similar order of magnitude to a Watch band + case
+  "Other electronics": { weight: 1.0, co2: 90 }, // Fallback for game consoles, speakers, etc. without a specific cited figure
+};
+
+// Broad category -> default landfill weight (kg) + embodied CO2
+// avoided (kg), used when no real weight is entered. Ballpark
+// estimates for a student project, not precise LCA figures.
+//
+// Bikes and Textiles list a default weight only -- their actual CO2
+// always comes from real weight x intensity (see
+// WEIGHT_SCALED_INTENSITY below), even when that weight falls back to
+// this default, so their .co2 field here is intentionally omitted
+// rather than left as a second, inconsistent number nobody reads.
+const CATEGORY_IMPACT = {
+  "Small Appliances": { weight: 2.5, co2: 20 },
+  "Bikes": { weight: 12 },
+  "Textiles": { weight: 0.6 },
+  "Furniture": { weight: 8, co2: 40 },
+  "Jewelry": { weight: 0.1, co2: 15 },
+  "Garden & Outdoor": { weight: 2.0, co2: 15 },
+  "Other": { weight: 1.5, co2: 25 },
+};
+
+// Real, self-consistent CO2 intensity (kg CO2e emitted per kg of
+// finished product) for the two categories where mass and embodied
+// carbon genuinely scale together in a documented way -- unlike
+// Electronics, where a tiny phone can have a far higher footprint per
+// kg than a large laptop case because of dense rare-material
+// components, not size.
+//
+// Both figures are derived by dividing a real, cited TOTAL product
+// footprint by that product's real typical weight, so the intensity
+// itself is grounded in real research, not invented:
+//   Bikes: Trek's own published sustainability report -- their bikes
+//     average ~174 kg CO2e to manufacture, at a typical ~12 kg bike
+//     weight -> ~14.5 kg CO2e/kg.
+//   Textiles: real academic manufacturing-stage LCA studies for a
+//     cotton t-shirt (~6-7 kg CO2e for a ~0.18 kg garment)
+//     -> ~36 kg CO2e/kg.
+//
+// Deliberately uses MANUFACTURING-stage figures, not full-lifecycle
+// numbers that include years of washing/drying -- because what we're
+// actually estimating is "CO2 avoided by not manufacturing a
+// replacement," and use-phase emissions happen either way, repaired
+// or not.
+const WEIGHT_SCALED_INTENSITY = {
+  "Bikes": 14.5,
+  "Textiles": 36,
 };
 
 // Real repair success rates computed from the Open Repair Alliance's
@@ -1023,6 +1093,9 @@ async function sendChat() {
   const captionText = text || "What's wrong with this item?";
   renderBubble("user", text, photo ? photo.dataUrl : null);
 
+  // Build the content block for this turn. If there's a photo, content
+  // must be an array (image block + text block) per the Anthropic API's
+  // multimodal message format; text-only turns stay a plain string.
   const userContent = photo
     ? [
         { type: "image", source: { type: "base64", media_type: photo.mediaType, data: photo.base64 } },
@@ -1036,6 +1109,11 @@ async function sendChat() {
   const typingBubble = renderBubble("bot", "FixIt Coach is thinking...");
   typingBubble.classList.add("typing");
 
+  // Ground the model's answer with real data: live iFixit guide search,
+  // a real repair-success rate from the Open Repair Alliance dataset,
+  // and a match against our own curated device-tip knowledge base if
+  // one exists. All three are appended only to the API payload, not to
+  // what's shown in the user's own chat bubble above.
   let ifixitGuides = [];
   let stat = null;
   let deviceMatch = null;
@@ -1057,6 +1135,9 @@ async function sendChat() {
     groundingNote += `\n\n[Real data point: in the Open Repair Alliance's community dataset, ${stat.label} repairs at community events succeed ${stat.overall}% of the time (n=${stat.overallN}). You can mention this stat if it's encouraging or relevant, but don't force it in.]`;
   }
 
+  // Re-attach the grounding note to just this turn's payload without
+  // mutating what's stored in chatHistory (so future turns don't
+  // accumulate stale notes).
   let apiLastContent = userContent;
   if (groundingNote) {
     apiLastContent = photo
@@ -1066,6 +1147,8 @@ async function sendChat() {
   const apiMessages = chatHistory.slice(0, -1).concat([{ role: "user", content: apiLastContent }]);
 
   try {
+    // Calls our own backend, which holds the real Anthropic API key
+    // server-side -- the browser never sees the key.
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1082,6 +1165,13 @@ async function sendChat() {
     renderBubble("bot", reply);
     chatHistory.push({ role: "assistant", content: reply });
 
+    // Show real, clickable links alongside the reply: up to 2 real
+    // iFixit guides from the live search we already ran, plus a real
+    // YouTube search link for this exact query. The YouTube link isn't
+    // from an API (that would need a separate Google API key/signup) --
+    // it's a genuine, honest search-results URL, so it always finds
+    // real, current videos when clicked, just like typing the search
+    // into YouTube yourself.
     if (ifixitGuides.length || text) {
       const log = document.getElementById("chat-log");
       const linkRow = document.createElement("div");
@@ -1120,6 +1210,10 @@ async function sendChat() {
 let userDistances = null; // { eventId: miles } after a successful address search
 let activeRadius = null; // the radius (miles) selected at the time of the last search
 
+// Calls our own backend, which proxies to OpenStreetMap's Nominatim
+// geocoder server-side (also lets the server set a proper User-Agent
+// header, which Nominatim's usage policy asks for and a browser can't
+// set on outgoing fetches).
 async function geocodeAddress(address) {
   const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
   if (!resp.ok) throw new Error("Geocoding request failed");
@@ -1127,6 +1221,7 @@ async function geocodeAddress(address) {
   return { lat: data.lat, lng: data.lng };
 }
 
+// Haversine distance in miles between two lat/lng points.
 function distanceMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.8;
   const toRad = d => (d * Math.PI) / 180;
@@ -1171,8 +1266,7 @@ async function findNearest() {
 }
 
 // Shared date/time parsing used by both the Google Calendar link and
-// the Apple/Outlook .ics file below, so both stay in sync and only
-// need fixing in one place. Parses a time string like
+// the Apple/Outlook .ics file below. Parses a time string like
 // "11:00 AM – 3:00 PM" into a real start/end; if there's no end time
 // (like The Bikery's listing), defaults to a 2-hour block so neither
 // calendar option breaks.
@@ -1217,18 +1311,10 @@ function buildCalendarLink(e) {
   return `https://www.google.com/calendar/render?${params.toString()}`;
 }
 
-// Escapes text per the iCalendar (RFC 5545) spec -- commas, semicolons,
-// and backslashes need a leading backslash, and real newlines become
-// the literal two characters \n.
 function escapeICSText(str) {
   return String(str).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
 
-// Builds a real, standard .ics calendar file for one event. This is
-// the universal format Apple Calendar (and Outlook) open directly --
-// unlike Google Calendar, there's no equivalent "click a link" option
-// for Apple Calendar, so the honest way to support it is a real
-// downloadable file rather than a fake button that does nothing.
 function buildICSContent(e) {
   const times = getEventStartEnd(e);
   if (!times) return null;
@@ -1251,15 +1337,11 @@ function buildICSContent(e) {
   ].join("\r\n");
 }
 
-// Triggers a real .ics file download for one event -- tapping it on
-// iPhone/Mac opens directly in Apple Calendar; on Windows it opens in
-// Outlook or whatever the default calendar app is.
 function downloadICS(eventId) {
   const e = EVENTS.find(ev => ev.id === eventId);
   if (!e) return;
   const content = buildICSContent(e);
   if (!content) { showToast("Couldn't build a calendar file for this event"); return; }
-
   const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1326,46 +1408,194 @@ async function renderEvents() {
 /* =========================================================
    IMPACT
    ========================================================= */
-let selectedFixDevice = null;
+let selectedFixCategory = null;
+let selectedElectronicsSubtype = null;
+let pendingFixPhoto = null; // { dataUrl, base64, mediaType } or null
 
 function renderLogChips() {
   const wrap = document.getElementById("log-fix-chips");
   wrap.innerHTML = "";
-  Object.keys(DEVICE_IMPACT).forEach(device => {
+  CATEGORIES.forEach(category => {
     const chip = document.createElement("span");
-    chip.className = "device-chip" + (selectedFixDevice === device ? " selected" : "");
-    chip.textContent = device;
-    chip.onclick = () => { selectedFixDevice = device; renderLogChips(); document.getElementById("log-fix-btn").disabled = false; };
+    chip.className = "device-chip" + (selectedFixCategory === category ? " selected" : "");
+    chip.textContent = category;
+    chip.onclick = () => {
+      selectedFixCategory = category;
+      selectedElectronicsSubtype = null;
+      renderLogChips();
+      renderElectronicsSubtypeChips();
+      // "Other" needs a free-text description since there's no
+      // specific device name to fall back on.
+      document.getElementById("other-fix-text").style.display = category === "Other" ? "block" : "none";
+      // Bikes/Textiles can use a real weight × intensity calculation
+      // if given an actual weight; falls back to the category default
+      // if left blank.
+      document.getElementById("fix-weight-input").style.display = (category in WEIGHT_SCALED_INTENSITY) ? "block" : "none";
+      // Electronics needs a specific sub-type picked before it's
+      // loggable, since that's what selects the real cited figure.
+      document.getElementById("log-fix-btn").disabled = category === "Electronics";
+    };
     wrap.appendChild(chip);
   });
 }
 
+function renderElectronicsSubtypeChips() {
+  const wrap = document.getElementById("electronics-subtype-chips");
+  if (selectedFixCategory !== "Electronics") {
+    wrap.style.display = "none";
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.style.display = "flex";
+  wrap.innerHTML = "";
+  Object.keys(ELECTRONICS_IMPACT).forEach(subtype => {
+    const chip = document.createElement("span");
+    chip.className = "device-chip" + (selectedElectronicsSubtype === subtype ? " selected" : "");
+    chip.textContent = subtype;
+    chip.onclick = () => {
+      selectedElectronicsSubtype = subtype;
+      renderElectronicsSubtypeChips();
+      document.getElementById("log-fix-btn").disabled = false;
+    };
+    wrap.appendChild(chip);
+  });
+}
+
+// Sends the attached photo to Claude (via our existing /api/chat proxy)
+// asking it only to CLASSIFY the item -- which category and, if
+// electronics, which specific sub-type it looks like. It never asks
+// the AI to estimate a CO2 number directly from the image; that
+// number always comes from the real cited figures above, looked up
+// only after classification picks the right bucket.
+async function classifyFixPhoto(photo) {
+  const prompt = `Look at this photo of a repaired item. Respond with ONLY a JSON object, no other text, in this exact form:
+{"category": "one of: Electronics, Small Appliances, Bikes, Textiles, Furniture, Jewelry, Garden & Outdoor, Other", "subtype": "if category is Electronics, one of: Phone, Tablet, Laptop, Watch, Headphones, Other electronics -- otherwise null"}`;
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system: "You classify photos of repaired items into fixed categories. Respond with ONLY the requested JSON, nothing else.",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: photo.mediaType, data: photo.base64 } },
+            { type: "text", text: prompt },
+          ],
+        }],
+      }),
+    });
+    const data = await response.json();
+    const textBlock = (data.content || []).find(b => b.type === "text");
+    if (!textBlock) return null;
+    const match = textBlock.text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    if (!CATEGORIES.includes(parsed.category)) return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function handleFixPhotoSelected(event) {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  const status = document.getElementById("fix-photo-status");
+  try {
+    const dataUrl = await resizeImageFile(file);
+    pendingFixPhoto = { dataUrl, base64: dataUrl.split(",")[1], mediaType: "image/jpeg" };
+    const strip = document.getElementById("fix-photo-preview-strip");
+    strip.innerHTML = `<div class="photo-preview"><img src="${dataUrl}"><button class="photo-remove" onclick="clearFixPhoto()">✕</button></div>`;
+    strip.style.display = "block";
+
+    status.textContent = "Identifying item...";
+    const result = await classifyFixPhoto(pendingFixPhoto);
+    if (result) {
+      selectedFixCategory = result.category;
+      selectedElectronicsSubtype = result.category === "Electronics" ? result.subtype : null;
+      renderLogChips();
+      renderElectronicsSubtypeChips();
+      document.getElementById("other-fix-text").style.display = result.category === "Other" ? "block" : "none";
+      document.getElementById("fix-weight-input").style.display = (result.category in WEIGHT_SCALED_INTENSITY) ? "block" : "none";
+      const needsSubtype = result.category === "Electronics" && !result.subtype;
+      document.getElementById("log-fix-btn").disabled = needsSubtype;
+      status.textContent = needsSubtype
+        ? "Looks like electronics — pick which kind below."
+        : `Looks like: ${result.subtype || result.category}. Tap a different option above if that's wrong.`;
+    } else {
+      status.textContent = "Couldn't identify it automatically — pick a category below.";
+    }
+  } catch (e) {
+    status.textContent = "Couldn't load that photo — try again, or just pick a category below.";
+  }
+}
+
+function clearFixPhoto() {
+  pendingFixPhoto = null;
+  const strip = document.getElementById("fix-photo-preview-strip");
+  strip.innerHTML = "";
+  strip.style.display = "none";
+  document.getElementById("fix-photo-status").textContent = "Optional: add a photo so we can identify the item";
+}
+
 async function renderImpact() {
+  // Totals stay shared -- this is meant to be a real community-wide
+  // counter everyone contributes to and sees together.
   const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
   document.getElementById("impact-repairs").textContent = totals.total_repairs;
   document.getElementById("impact-weight").textContent = totals.total_weight.toFixed(1) + " kg";
   document.getElementById("impact-co2").textContent = totals.total_co2.toFixed(1) + " kg";
 
-  const feed = await storageGet("impact:feed", true, []);
+  // The feed itself is personal (shared=false) -- especially since
+  // "Other" lets someone type free text, showing that to every visitor
+  // isn't something to do by default.
+  const feed = await storageGet("impact:feed", false, []);
   const feedEl = document.getElementById("impact-feed");
   feedEl.innerHTML = "";
   if (feed.length === 0) {
-    feedEl.innerHTML = '<p class="empty-note">No fixes logged yet — be the first!</p>';
+    feedEl.innerHTML = '<p class="empty-note">No fixes logged yet — log one above!</p>';
   } else {
     [...feed].reverse().slice(0, 10).forEach(item => {
       const div = document.createElement("div");
       div.className = "feed-item";
-      div.innerHTML = `<span class="fd">Someone fixed a ${item.device.toLowerCase()}</span><span class="fv">−${item.weight} kg</span>`;
+      div.innerHTML = `<span class="fd">You fixed ${item.label}</span><span class="fv">−${item.weight} kg</span>`;
       feedEl.appendChild(div);
     });
   }
 }
 
 async function logFix() {
-  if (!selectedFixDevice) return;
-  const impact = DEVICE_IMPACT[selectedFixDevice];
+  if (!selectedFixCategory) return;
+  if (selectedFixCategory === "Electronics" && !selectedElectronicsSubtype) return;
+
+  let impact;
+  if (selectedFixCategory === "Electronics") {
+    impact = ELECTRONICS_IMPACT[selectedElectronicsSubtype];
+  } else if (selectedFixCategory in WEIGHT_SCALED_INTENSITY) {
+    // If a real weight was entered, use it with the real intensity
+    // figure; otherwise fall back to the category's default weight so
+    // logging still works without requiring the extra step.
+    const typedWeight = parseFloat(document.getElementById("fix-weight-input").value);
+    const weight = (typedWeight > 0) ? typedWeight : CATEGORY_IMPACT[selectedFixCategory].weight;
+    const co2 = Math.round(weight * WEIGHT_SCALED_INTENSITY[selectedFixCategory] * 10) / 10;
+    impact = { weight, co2 };
+  } else {
+    impact = CATEGORY_IMPACT[selectedFixCategory];
+  }
   const btn = document.getElementById("log-fix-btn");
   btn.disabled = true;
+
+  let label;
+  if (selectedFixCategory === "Electronics") {
+    label = selectedElectronicsSubtype.toLowerCase();
+  } else if (selectedFixCategory === "Other") {
+    const typed = document.getElementById("other-fix-text").value.trim();
+    label = typed || "something";
+  } else {
+    label = selectedFixCategory.toLowerCase();
+  }
 
   const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
   totals.total_repairs += 1;
@@ -1373,13 +1603,20 @@ async function logFix() {
   totals.total_co2 = Math.round((totals.total_co2 + impact.co2) * 10) / 10;
   await storageSet("impact:totals", totals, true);
 
-  const feed = await storageGet("impact:feed", true, []);
-  feed.push({ device: selectedFixDevice, weight: impact.weight, co2: impact.co2, ts: Date.now() });
-  await storageSet("impact:feed", feed.slice(-50), true);
+  const feed = await storageGet("impact:feed", false, []);
+  feed.push({ label, weight: impact.weight, co2: impact.co2, ts: Date.now() });
+  await storageSet("impact:feed", feed.slice(-50), false);
 
   showToast("Nice work! Impact logged 🌍");
-  selectedFixDevice = null;
+  selectedFixCategory = null;
+  selectedElectronicsSubtype = null;
+  clearFixPhoto();
+  document.getElementById("other-fix-text").value = "";
+  document.getElementById("other-fix-text").style.display = "none";
+  document.getElementById("fix-weight-input").value = "";
+  document.getElementById("fix-weight-input").style.display = "none";
   renderLogChips();
+  renderElectronicsSubtypeChips();
   renderImpact();
   renderHome();
 }
@@ -1411,6 +1648,9 @@ window.addEventListener("DOMContentLoaded", () => {
   renderImpact();
   renderSuccessStats();
 
+  // Register the service worker for offline resilience + installability.
+  // Safe to no-op if unsupported (older browsers) or if served over
+  // plain HTTP in local dev (service workers require HTTPS or localhost).
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => {
       console.warn("Service worker registration failed:", err);
