@@ -24,6 +24,7 @@
   .phone { width: 100%; max-width: 430px; min-height: 100vh; background: var(--paper); display: flex; flex-direction: column; position: relative; }
   .topbar { padding: 18px 20px 14px; display: flex; align-items: center; gap: 8px; background: var(--paper); position: sticky; top: 0; z-index: 5; }
   .topbar .icon { font-size: 1.3rem; }
+  .topbar .logo-img { width: 30px; height: 30px; border-radius: 8px; display: block; }
   .topbar h1 { font-size: 1.15rem; margin: 0; font-weight: 800; letter-spacing: -0.01em; }
   .topbar h1 span { color: var(--rust); }
   .screen { display: none; flex: 1; padding: 0 18px 100px; overflow-y: auto; }
@@ -114,6 +115,15 @@
   .stat-bar-bg { background: var(--steel-bg); border-radius: 999px; height: 7px; overflow: hidden; }
   .stat-bar-fill { background: var(--green); height: 100%; border-radius: 999px; }
   .stat-line-n { font-size: 0.68rem; color: var(--muted); margin-top: 3px; }
+  .guide-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin: 0 0 14px; align-self: stretch; }
+  .guide-card-title { font-weight: 700; font-size: 0.88rem; margin-bottom: 10px; }
+  .guide-step { margin-bottom: 14px; }
+  .guide-step:last-of-type { margin-bottom: 8px; }
+  .guide-step-num { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rust-deep); margin-bottom: 4px; }
+  .guide-step img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; margin-bottom: 6px; }
+  .guide-step-text { font-size: 0.82rem; line-height: 1.45; }
+  .guide-credit { font-size: 0.68rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 8px; }
+  .guide-credit a { color: var(--rust-deep); }
   label.f { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 5px; }
   input[type=text].f-input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 0.9rem; margin-bottom: 14px; }
   input[type=text].f-input:focus { outline: none; border-color: var(--rust); }
@@ -136,7 +146,7 @@
 <div class="phone">
 
   <div class="topbar">
-    <span class="icon">⚙️</span>
+    <img class="logo-img" src="{{ url_for('static', filename='icon-192.png') }}" alt="FixItFlow logo">
     <h1>Fix<span>It</span>Flow</h1>
   </div>
 
@@ -597,8 +607,16 @@ Guidelines:
 - For anything involving mains-voltage electrical work beyond unplugging the item, gas appliances, swollen or damaged lithium batteries, microwave capacitors, or other real safety risk, tell them to stop and bring it to a real Repair Café event in person rather than doing it themselves.
 - When it fits naturally, mention they can register for a free local Repair Café event (Events tab) for hands-on help.
 - Users may attach a photo of the broken item. Use visible details in the photo (brand, model, visible damage, corrosion, frayed wires, cracks, etc.) to inform your diagnosis and mention what you can see.
-- Stay warm and encouraging about repair and reuse, but don't be preachy about it.`;
+- Stay warm and encouraging about repair and reuse, but don't be preachy about it.
 
+Trusted sources:
+- Base your advice on established, reputable repair knowledge. When you point someone to a resource, only use these trusted sources: iFixit (step-by-step guides for specific makes and models), the Restart Project Wiki at wiki.restarters.net (general repair principles and safety for whole classes of devices), the manufacturer's official support site or user manual, and the U.S. Consumer Product Safety Commission at cpsc.gov/Recalls for product recalls.
+- Never invent a guide, video, part number, or source. If you aren't confident about a specific fix, say so plainly and suggest a local repair event instead of guessing.
+- If the item sparks, smokes, smells like burning, overheats, or has a swollen battery, tell them to stop using it and check cpsc.gov/Recalls for a recall before attempting any repair.`;
+
+// Appended only when the person is talking by voice (conversation
+// mode), so replies actually sound like a person talking, not a
+// document being read aloud.
 const VOICE_MODE_ADDENDUM = `
 
 The person is talking to you out loud right now, hands-on with their repair, and your reply will be read aloud by text-to-speech. Because of that:
@@ -650,6 +668,124 @@ function clearPendingPhoto() {
   layoutChatFooter();
 }
 
+// iFixit's search is built for device and part names ("toaster", "iPhone
+// 12 battery"), not full sentences -- sending "my bike is broken help me
+// fix it" often finds nothing. This strips common filler words so the
+// search gets just the meaningful ones ("bike"). The YouTube link still
+// uses the full sentence, since YouTube handles natural language fine.
+const SEARCH_FILLER_WORDS = new Set(["my","the","a","an","is","it","its","it's","im","i'm","i","me","help","fix",
+  "how","to","do","can","you","please","broken","not","working","won't","wont","doesn't","doesnt","isn't","isnt",
+  "and","or","of","on","in","with","this","that","what","why","should","need","keeps","just","so","really","any","turn","turns","stopped","work","works"]);
+function buildRepairSearchQuery(text) {
+  const words = text.toLowerCase().replace(/[^a-z0-9'\s-]/g, " ").split(/\s+/).filter(Boolean);
+  const kept = words.filter(w => !SEARCH_FILLER_WORDS.has(w));
+  return (kept.length ? kept : words).slice(0, 5).join(" ");
+}
+
+const SAFETY_WARNING_WORDS = /\b(spark|sparks|sparking|smoke|smoking|smoked|burning|burnt|burned|melt|melted|melting|swollen|swelling|overheat|overheats|overheating|shock|shocked)\b/i;
+
+// Hand-drawn concept diagrams for general repair ideas that hold true
+// across most makes and models. These are fixed, pre-checked drawings
+// rather than AI-generated on the fly: an AI-drawn diagram could
+// invent parts or wiring that aren't really there, and inserting
+// AI-written SVG code straight into the page would also be a security
+// risk. Each card is labeled as a general diagram, since a specific
+// model can look different.
+const DIAGRAMS = {"no-power": {"title": "Won't turn on? Check in this order", "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 304\" width=\"100%\" role=\"img\" font-family=\"system-ui, -apple-system, Segoe UI, sans-serif\"><rect x=\"10\" y=\"8\" width=\"300\" height=\"46\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"31\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"35\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">1</text><text x=\"52\" y=\"28\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Is the outlet working?</text><text x=\"52\" y=\"44\" font-size=\"11\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Test it with a lamp or phone charger.</text><line x1=\"160\" y1=\"54\" x2=\"160\" y2=\"63\" stroke=\"#6b6055\" stroke-width=\"2\"/><path d=\"M155,61 L160,68 L165,61 Z\" fill=\"#6b6055\"/><rect x=\"10\" y=\"68\" width=\"300\" height=\"46\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"91\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"95\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">2</text><text x=\"52\" y=\"88\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Is the cord damaged?</text><text x=\"52\" y=\"104\" font-size=\"11\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Look for cuts, kinks, or scorch marks.</text><line x1=\"160\" y1=\"114\" x2=\"160\" y2=\"123\" stroke=\"#6b6055\" stroke-width=\"2\"/><path d=\"M155,121 L160,128 L165,121 Z\" fill=\"#6b6055\"/><rect x=\"10\" y=\"128\" width=\"300\" height=\"46\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"151\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"155\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">3</text><text x=\"52\" y=\"148\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Is there a reset button?</text><text x=\"52\" y=\"164\" font-size=\"11\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Some appliances have a safety cutoff.</text><line x1=\"160\" y1=\"174\" x2=\"160\" y2=\"183\" stroke=\"#6b6055\" stroke-width=\"2\"/><path d=\"M155,181 L160,188 L165,181 Z\" fill=\"#6b6055\"/><rect x=\"10\" y=\"188\" width=\"300\" height=\"46\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"211\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"215\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">4</text><text x=\"52\" y=\"208\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Is every part seated right?</text><text x=\"52\" y=\"224\" font-size=\"11\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Many won't run unless a lid or door latches.</text><line x1=\"160\" y1=\"234\" x2=\"160\" y2=\"243\" stroke=\"#6b6055\" stroke-width=\"2\"/><path d=\"M155,241 L160,248 L165,241 Z\" fill=\"#6b6055\"/><rect x=\"10\" y=\"248\" width=\"300\" height=\"46\" rx=\"10\" fill=\"#eaf5ee\" stroke=\"#1f6b3a\"/><circle cx=\"32\" cy=\"271\" r=\"12\" fill=\"#1f6b3a\"/><text x=\"32\" y=\"275\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">5</text><text x=\"52\" y=\"268\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Still nothing?</text><text x=\"52\" y=\"284\" font-size=\"11\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Bring it to a free repair event.</text></svg>"}, "unplug": {"title": "Before you open anything", "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 280\" width=\"100%\" role=\"img\" font-family=\"system-ui, -apple-system, Segoe UI, sans-serif\"><rect x=\"214\" y=\"10\" width=\"74\" height=\"78\" rx=\"10\" fill=\"#eef1f2\" stroke=\"#4a5960\" stroke-width=\"2\"/><rect x=\"234\" y=\"30\" width=\"8\" height=\"22\" rx=\"2\" fill=\"#4a5960\"/><rect x=\"260\" y=\"30\" width=\"8\" height=\"22\" rx=\"2\" fill=\"#4a5960\"/><path d=\"M244,66 a7,7 0 0 1 14,0 v6 h-14 z\" fill=\"#4a5960\"/><path d=\"M20,60 C60,60 70,50 96,50\" stroke=\"#251f19\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\"/><rect x=\"96\" y=\"32\" width=\"46\" height=\"40\" rx=\"8\" fill=\"#251f19\"/><rect x=\"142\" y=\"40\" width=\"20\" height=\"7\" rx=\"2\" fill=\"#6b6055\"/><rect x=\"142\" y=\"58\" width=\"20\" height=\"7\" rx=\"2\" fill=\"#6b6055\"/><path d=\"M178,52 L200,52\" stroke=\"#b5502f\" stroke-width=\"2.5\" stroke-dasharray=\"4 3\"/><path d=\"M182,45 L172,52 L182,59\" stroke=\"#b5502f\" stroke-width=\"2.5\" fill=\"none\"/><text x=\"160\" y=\"108\" font-size=\"11.5\" fill=\"#8a3b21\" font-weight=\"700\" text-anchor=\"middle\">Pull the plug, don't just switch it off</text><circle cx=\"24\" cy=\"132\" r=\"10\" fill=\"#b5502f\"/><text x=\"24\" y=\"136\" font-size=\"11\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">1</text><text x=\"42\" y=\"131\" font-size=\"12\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Unplug it</text><text x=\"42\" y=\"145\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Switching off isn't enough. Power can still reach inside.</text><circle cx=\"24\" cy=\"166\" r=\"10\" fill=\"#b5502f\"/><text x=\"24\" y=\"170\" font-size=\"11\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">2</text><text x=\"42\" y=\"165\" font-size=\"12\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Wait</text><text x=\"42\" y=\"179\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Let heating parts cool down before you touch anything.</text><circle cx=\"24\" cy=\"200\" r=\"10\" fill=\"#b5502f\"/><text x=\"24\" y=\"204\" font-size=\"11\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">3</text><text x=\"42\" y=\"199\" font-size=\"12\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Then open it</text><text x=\"42\" y=\"213\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Take photos as you go so you can put it back together.</text><rect x=\"10\" y=\"228\" width=\"300\" height=\"46\" rx=\"10\" fill=\"#fbeaea\" stroke=\"#e3b4b4\"/><text x=\"22\" y=\"246\" font-size=\"10.5\" fill=\"#a33\" font-weight=\"700\" text-anchor=\"start\">⚠ Microwaves, TVs and power supplies can hold a</text><text x=\"22\" y=\"262\" font-size=\"10.5\" fill=\"#a33\" font-weight=\"700\" text-anchor=\"start\">dangerous charge even unplugged. Leave those to a pro.</text></svg>"}, "swollen-battery": {"title": "Swollen battery? Stop here", "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 210\" width=\"100%\" role=\"img\" font-family=\"system-ui, -apple-system, Segoe UI, sans-serif\"><rect x=\"28\" y=\"30\" width=\"100\" height=\"22\" rx=\"4\" fill=\"#1f6b3a\"/><text x=\"78\" y=\"22\" font-size=\"12\" fill=\"#1f6b3a\" font-weight=\"700\" text-anchor=\"middle\">Normal</text><text x=\"78\" y=\"72\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"middle\">Flat and even</text><path d=\"M190,52 L290,52 L290,48 C290,18 190,18 190,48 Z\" fill=\"#a33\"/><rect x=\"190\" y=\"44\" width=\"100\" height=\"10\" rx=\"3\" fill=\"#a33\"/><text x=\"240\" y=\"22\" font-size=\"12\" fill=\"#a33\" font-weight=\"700\" text-anchor=\"middle\">Swollen</text><text x=\"240\" y=\"72\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"middle\">Puffy, bulging, case won't close</text><line x1=\"10\" y1=\"88\" x2=\"310\" y2=\"88\" stroke=\"#e6ddd0\"/><text x=\"10\" y=\"108\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">If it's swollen:</text><text x=\"14\" y=\"128\" font-size=\"13\" fill=\"#a33\" font-weight=\"700\" text-anchor=\"start\">✕</text><text x=\"32\" y=\"128\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"400\" text-anchor=\"start\">Don't charge it or keep using it</text><text x=\"14\" y=\"150\" font-size=\"13\" fill=\"#a33\" font-weight=\"700\" text-anchor=\"start\">✕</text><text x=\"32\" y=\"150\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"400\" text-anchor=\"start\">Don't poke, press, or try to flatten it</text><text x=\"14\" y=\"172\" font-size=\"13\" fill=\"#1f6b3a\" font-weight=\"700\" text-anchor=\"start\">✓</text><text x=\"32\" y=\"172\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"400\" text-anchor=\"start\">Unplug it and move it away from anything flammable</text><text x=\"14\" y=\"194\" font-size=\"13\" fill=\"#1f6b3a\" font-weight=\"700\" text-anchor=\"start\">✓</text><text x=\"32\" y=\"194\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"400\" text-anchor=\"start\">Take it to an e-waste or battery recycling drop-off</text></svg>"}, "vacuum": {"title": "Weak suction? Where it gets lost", "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 252\" width=\"100%\" role=\"img\" font-family=\"system-ui, -apple-system, Segoe UI, sans-serif\"><text x=\"160\" y=\"16\" font-size=\"11.5\" fill=\"#8a3b21\" font-weight=\"700\" text-anchor=\"middle\">Unplug it first, then check these 4 spots</text><rect x=\"10\" y=\"28\" width=\"300\" height=\"44\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"50\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"54\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">1</text><text x=\"52\" y=\"47\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Bag or bin</text><text x=\"52\" y=\"63\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Full? Empty it or replace the bag.</text><rect x=\"10\" y=\"80\" width=\"300\" height=\"44\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"102\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"106\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">2</text><text x=\"52\" y=\"99\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Filter</text><text x=\"52\" y=\"115\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Clogged? Rinse or replace it (see manual).</text><rect x=\"10\" y=\"132\" width=\"300\" height=\"44\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"154\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"158\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">3</text><text x=\"52\" y=\"151\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Hose</text><text x=\"52\" y=\"167\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Blocked? Look through it. Clogs hide at bends.</text><rect x=\"10\" y=\"184\" width=\"300\" height=\"44\" rx=\"10\" fill=\"#fdf3ec\" stroke=\"#f0d7c9\"/><circle cx=\"32\" cy=\"206\" r=\"12\" fill=\"#b5502f\"/><text x=\"32\" y=\"210\" font-size=\"12\" fill=\"#ffffff\" font-weight=\"700\" text-anchor=\"middle\">4</text><text x=\"52\" y=\"203\" font-size=\"12.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Brush roll</text><text x=\"52\" y=\"219\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Hair wrapped on it? Snip it off, check belt.</text><text x=\"160\" y=\"244\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"middle\">Most lost suction is a blockage, not a broken motor.</text></svg>"}, "zipper": {"title": "How a zipper slider works", "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 292\" width=\"100%\" role=\"img\" font-family=\"system-ui, -apple-system, Segoe UI, sans-serif\"><rect x=\"72\" y=\"78\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"102\" y=\"82\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"65\" y=\"66\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"109\" y=\"70\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"58\" y=\"54\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"116\" y=\"58\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"51\" y=\"42\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"123\" y=\"46\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"44\" y=\"30\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"130\" y=\"34\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"37\" y=\"18\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"137\" y=\"22\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><line x1=\"80\" y1=\"88\" x2=\"34\" y2=\"14\" stroke=\"#e6ddd0\" stroke-width=\"10\" opacity=\".9\"/><line x1=\"104\" y1=\"88\" x2=\"150\" y2=\"14\" stroke=\"#e6ddd0\" stroke-width=\"10\" opacity=\".9\"/><rect x=\"72\" y=\"78\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"102\" y=\"82\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"65\" y=\"66\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"109\" y=\"70\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"58\" y=\"54\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"116\" y=\"58\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"51\" y=\"42\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"123\" y=\"46\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"44\" y=\"30\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"130\" y=\"34\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"37\" y=\"18\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"137\" y=\"22\" width=\"10\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><path d=\"M66,90 L118,90 L108,128 L76,128 Z\" fill=\"#b5502f\"/><rect x=\"87\" y=\"128\" width=\"10\" height=\"20\" rx=\"4\" fill=\"#8a3b21\"/><rect x=\"80\" y=\"134\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"92\" y=\"139\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"80\" y=\"144\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"92\" y=\"149\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"80\" y=\"154\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"92\" y=\"159\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"80\" y=\"164\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"92\" y=\"169\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"80\" y=\"174\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"92\" y=\"179\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"80\" y=\"184\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><rect x=\"92\" y=\"189\" width=\"12\" height=\"7\" rx=\"1.5\" fill=\"#4a5960\"/><path d=\"M132,150 L132,104\" stroke=\"#1f6b3a\" stroke-width=\"2.5\"/><path d=\"M126,110 L132,100 L138,110\" stroke=\"#1f6b3a\" stroke-width=\"2.5\" fill=\"none\"/><text x=\"140\" y=\"126\" font-size=\"11\" fill=\"#1f6b3a\" font-weight=\"700\" text-anchor=\"start\">Pull up</text><text x=\"186\" y=\"30\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Open teeth</text><text x=\"186\" y=\"44\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">go in the top</text><text x=\"186\" y=\"100\" font-size=\"11.5\" fill=\"#8a3b21\" font-weight=\"700\" text-anchor=\"start\">The slider</text><text x=\"186\" y=\"114\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">wedges them</text><text x=\"186\" y=\"128\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">together</text><text x=\"186\" y=\"166\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Locked teeth</text><text x=\"186\" y=\"180\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">come out below</text><line x1=\"10\" y1=\"200\" x2=\"310\" y2=\"200\" stroke=\"#e6ddd0\"/><text x=\"10\" y=\"218\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Stuck?</text><text x=\"10\" y=\"232\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">Rub a pencil tip or bar of soap along the teeth.</text><text x=\"10\" y=\"254\" font-size=\"11.5\" fill=\"#251f19\" font-weight=\"700\" text-anchor=\"start\">Splits behind it?</text><text x=\"10\" y=\"268\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">The slider has loosened. Gently squeeze its</text><text x=\"10\" y=\"282\" font-size=\"10.5\" fill=\"#6b6055\" font-weight=\"400\" text-anchor=\"start\">sides with pliers, or replace the slider.</text></svg>"}};
+
+// Which diagrams to offer for a message. Safety ones come first, and
+// at most two are offered so the reply doesn't get cluttered.
+const DIAGRAM_TRIGGERS = [
+  ["swollen-battery", /\b(swollen|swelling|bulging|bulge|puffy|puffed)\b/i],
+  ["unplug", /\b(open it|open up|opening|take (it )?apart|taking (it )?apart|disassembl\w*)\b/i],
+  ["no-power", /(won'?t|wont|doesn'?t|doesnt|not) (turn|power|switch|start)( it)? on|\bno power\b|won'?t start|nothing happens|\bwon'?t power\b/i],
+  ["vacuum", /\b(vacuum|hoover|suction)\b/i],
+  ["zipper", /\b(zipper|zip|zips)\b/i],
+];
+function pickDiagrams(text) {
+  return DIAGRAM_TRIGGERS.filter(([key, re]) => re.test(text)).map(([key]) => key).slice(0, 2);
+}
+
+function showDiagram(key, chipEl, rowEl) {
+  const d = DIAGRAMS[key];
+  if (!d) return;
+  const card = document.createElement("div");
+  card.className = "guide-card";
+  const title = document.createElement("div");
+  title.className = "guide-card-title";
+  title.textContent = "📐 " + d.title;
+  card.appendChild(title);
+  const art = document.createElement("div");
+  art.innerHTML = d.svg; // safe: fixed, hand-made content, never user or AI text
+  card.appendChild(art);
+  const note = document.createElement("div");
+  note.className = "guide-credit";
+  note.style.marginTop = "8px";
+  note.textContent = "General diagram. Your model may look different.";
+  card.appendChild(note);
+  rowEl.insertAdjacentElement("afterend", card);
+  chipEl.remove();
+}
+
+// Fetches the real steps + photos of one iFixit guide (through our own
+// backend) and shows them as a step-by-step card in the chat, credited
+// to iFixit with a link back to the full original guide.
+async function showGuideSteps(guideId, buttonEl) {
+  buttonEl.textContent = "Loading photos...";
+  buttonEl.style.pointerEvents = "none";
+  try {
+    const resp = await fetch(`/api/ifixit-guide/${encodeURIComponent(guideId)}`);
+    if (!resp.ok) throw new Error("guide fetch failed");
+    const guide = await resp.json();
+    if (!guide.steps || !guide.steps.length) throw new Error("no steps");
+
+    const card = document.createElement("div");
+    card.className = "guide-card";
+    const title = document.createElement("div");
+    title.className = "guide-card-title";
+    title.textContent = "📸 " + guide.title;
+    card.appendChild(title);
+
+    guide.steps.forEach((step, i) => {
+      const stepEl = document.createElement("div");
+      stepEl.className = "guide-step";
+      const num = document.createElement("div");
+      num.className = "guide-step-num";
+      num.textContent = "Step " + (i + 1);
+      stepEl.appendChild(num);
+      if (step.image) {
+        const img = document.createElement("img");
+        img.src = step.image;
+        img.alt = "Photo for step " + (i + 1);
+        img.loading = "lazy";
+        stepEl.appendChild(img);
+      }
+      if (step.text) {
+        const txt = document.createElement("div");
+        txt.className = "guide-step-text";
+        txt.textContent = step.text;
+        stepEl.appendChild(txt);
+      }
+      card.appendChild(stepEl);
+    });
+
+    const credit = document.createElement("div");
+    credit.className = "guide-credit";
+    const remaining = (guide.total_steps || 0) - guide.steps.length;
+    credit.textContent = (remaining > 0 ? `Showing the first ${guide.steps.length} of ${guide.total_steps} steps. ` : "") + "Photos and steps from iFixit (CC BY-NC-SA). ";
+    const link = document.createElement("a");
+    link.href = guide.url; link.target = "_blank"; link.rel = "noopener";
+    link.textContent = "See the full guide →";
+    credit.appendChild(link);
+    card.appendChild(credit);
+
+    buttonEl.replaceWith(card);
+  } catch (e) {
+    buttonEl.textContent = "Couldn't load photos — open the guide instead";
+    buttonEl.style.pointerEvents = "";
+  }
+}
+
 async function fetchIfixitGuides(query) {
   try {
     const resp = await fetch(`/api/ifixit-search?q=${encodeURIComponent(query)}`);
@@ -687,12 +823,19 @@ function renderBubble(role, text, imageDataUrl) {
   return div;
 }
 
-let ttsEnabled = getStoredTTSPref();
-let recognition = null;
-let isListening = false;
-let voiceModeActive = false;
-let conversationActive = false;
-
+/* =========================================================
+   VOICE: speech-to-text (mic input) and text-to-speech (Coach
+   reading replies aloud) -- both use the browser's built-in Web
+   Speech API, so no external API key or signup is needed. Real
+   browser support varies (works well in Chrome and Safari; very
+   limited or absent in Firefox), so both features check for
+   support and fail gracefully rather than pretending to work
+   everywhere.
+   ========================================================= */
+// Reading/writing localStorage can throw in some real browser contexts
+// (Safari private browsing, some embedded webviews) -- wrapped so a
+// failure there can't take down the whole script, just this one
+// preference.
 function getStoredTTSPref() {
   try { return localStorage.getItem("fixitflow-tts-enabled") === "true"; }
   catch (e) { return false; }
@@ -701,6 +844,11 @@ function setStoredTTSPref(value) {
   try { localStorage.setItem("fixitflow-tts-enabled", value); }
   catch (e) { /* not persisted this session, but the app still works */ }
 }
+let ttsEnabled = getStoredTTSPref();
+let recognition = null;
+let isListening = false;
+let voiceModeActive = false;
+let conversationActive = false; // true only while the visible conversation-mode banner is showing
 
 function updateConversationBanner() {
   const banner = document.getElementById("conversation-banner");
@@ -708,6 +856,9 @@ function updateConversationBanner() {
   banner.style.display = conversationActive ? "flex" : "none";
 }
 
+// The one explicit, reliable way to stop conversation mode -- doesn't
+// depend on silence timing out or the mic being tapped at the right
+// moment. Cancels anything mid-flight so nothing restarts afterward.
 function endConversation() {
   conversationActive = false;
   voiceModeActive = false;
@@ -715,6 +866,7 @@ function endConversation() {
   if (isListening && recognition) recognition.stop();
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
+
 
 function updateTTSButton() {
   const btn = document.getElementById("tts-toggle-btn");
@@ -733,17 +885,25 @@ function toggleTTS() {
   if (!ttsEnabled) window.speechSynthesis.cancel();
 }
 
+// Safety net for text-to-speech: even with the voice-mode prompt
+// telling Claude not to use markdown, strip common markdown syntax
+// before speaking, so a stray "**word**" or "1. " doesn't get read
+// aloud as literal asterisks and numbers.
 function stripMarkdownForSpeech(text) {
   return text
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^[-*]\s+/gm, "")
-    .replace(/^\d+\.\s+/gm, "")
-    .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1")   // **bold**
+    .replace(/\*(.+?)\*/g, "$1")        // *italic*
+    .replace(/^#{1,6}\s+/gm, "")        // # headers
+    .replace(/^[-*]\s+/gm, "")          // - bullet / * bullet
+    .replace(/^\d+\.\s+/gm, "")         // 1. numbered list
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // [link text](url) -> link text
     .trim();
 }
 
+// Picks the most natural-sounding voice this browser has available,
+// rather than whatever the default happens to be -- browsers often
+// list several, and some (especially "Natural" or "Google" ones)
+// sound noticeably less robotic than the plain default.
 function pickBestVoice() {
   const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return null;
@@ -756,15 +916,28 @@ function pickBestVoice() {
 
 function speakText(text, continueConversation) {
   if (!ttsEnabled || !("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
+  window.speechSynthesis.cancel(); // don't stack replies if one's already talking
   const utterance = new SpeechSynthesisUtterance(stripMarkdownForSpeech(text));
   utterance.rate = 1.0;
   const voice = pickBestVoice();
   if (voice) utterance.voice = voice;
+  // Conversation mode: once Coach finishes talking, automatically start
+  // listening again -- but only if THIS reply came from a voice
+  // message. Passed in directly rather than read from the global flag,
+  // since that flag gets reset the moment the message is sent (see
+  // sendChat), long before this callback ever fires.
+  // Checks BOTH that this reply came from a voice message AND that the
+  // conversation hasn't since been explicitly ended -- the second
+  // check matters because tapping "End" can happen while Coach is
+  // still mid-sentence, and cancel() alone isn't reliably guaranteed
+  // to suppress this callback across every browser.
   utterance.onend = () => { if (continueConversation && conversationActive) toggleListening(); };
   window.speechSynthesis.speak(utterance);
 }
 
+// Sets up voice input using the browser's SpeechRecognition API.
+// Not calling any external service -- this transcription happens
+// entirely in the browser.
 const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SpeechRecognitionAPI) {
   recognition = new SpeechRecognitionAPI();
@@ -778,11 +951,14 @@ if (SpeechRecognitionAPI) {
     voiceModeActive = true;
     conversationActive = true;
     updateConversationBanner();
-    sendChat();
+    sendChat(); // hands-free: send right away rather than making them tap send too
   };
   recognition.onerror = (event) => {
     isListening = false;
     updateMicButton();
+    // No restart follows an error -- if we were mid-conversation, this
+    // is a natural end (typically the silence timeout), so the banner
+    // should honestly reflect that it's actually over.
     conversationActive = false;
     updateConversationBanner();
     if (event.error === "not-allowed") {
@@ -828,6 +1004,8 @@ function toggleListening() {
 function initChat() {
   renderBubble("bot", "Hi! I'm FixIt Coach. Tell me what's broken and what it's doing, and I'll help you figure out what's wrong.");
   updateTTSButton();
+  // Hide the mic button entirely on browsers that don't support it,
+  // rather than showing a button that would just fail every time.
   if (!recognition) {
     const micBtn = document.getElementById("mic-btn");
     if (micBtn) micBtn.style.display = "none";
@@ -867,7 +1045,7 @@ async function sendChat() {
   let stat = null;
   let deviceMatch = null;
   if (text) {
-    [ifixitGuides, stat] = await Promise.all([fetchIfixitGuides(text), Promise.resolve(lookupSuccessStat(text))]);
+    [ifixitGuides, stat] = await Promise.all([fetchIfixitGuides(buildRepairSearchQuery(text)), Promise.resolve(lookupSuccessStat(text))]);
     deviceMatch = lookupDeviceTips(text);
   }
 
@@ -920,7 +1098,38 @@ async function sendChat() {
         ytLink.textContent = "📺 Search YouTube for repair videos";
         linkRow.appendChild(ytLink);
       }
+      if (text && SAFETY_WARNING_WORDS.test(text)) {
+        const recallLink = document.createElement("a");
+        recallLink.href = "https://www.cpsc.gov/Recalls";
+        recallLink.target = "_blank"; recallLink.rel = "noopener";
+        recallLink.className = "suggest-chip"; recallLink.style.textDecoration = "none";
+        recallLink.textContent = "⚠️ Check for a safety recall (CPSC)";
+        linkRow.appendChild(recallLink);
+      }
+      if (text) {
+        pickDiagrams(text).forEach(key => {
+          const chip = document.createElement("span");
+          chip.className = "suggest-chip";
+          chip.textContent = "📐 Diagram: " + DIAGRAMS[key].title;
+          chip.onclick = () => showDiagram(key, chip, linkRow);
+          linkRow.appendChild(chip);
+        });
+      }
       log.appendChild(linkRow);
+
+      // Real step-by-step photos from the top iFixit guide, loaded only
+      // when tapped (each guide is a separate request, so we don't fetch
+      // photos nobody asked to see).
+      const topGuide = ifixitGuides.find(g => g.guideid);
+      if (topGuide) {
+        const photoBtn = document.createElement("span");
+        photoBtn.className = "suggest-chip";
+        photoBtn.style.alignSelf = "flex-start";
+        photoBtn.style.marginBottom = "14px";
+        photoBtn.textContent = "📸 Show step-by-step photos";
+        photoBtn.onclick = () => showGuideSteps(topGuide.guideid, photoBtn);
+        log.appendChild(photoBtn);
+      }
     }
   } catch (err) {
     typingBubble.remove();
