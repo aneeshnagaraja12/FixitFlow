@@ -34,9 +34,14 @@ Optional environment variables:
 """
 
 import html
+import json
 import os
+import re
+import time
 import uuid
-from urllib.parse import quote
+from datetime import datetime, timedelta
+from urllib.parse import quote, urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import Flask, render_template, request, jsonify, session
@@ -306,6 +311,191 @@ def ifixit_guide(guide_id):
         })
     except (requests.RequestException, ValueError):
         return jsonify({"error": "Couldn't load guide"}), 502
+
+
+# ---------------------------------------------------------------------
+# Live "repair events near me" search. Works like a Google search for
+# "repair events near <zip>": Claude runs real web searches (the Claude
+# API's built-in web search tool), reads the results, and returns the
+# upcoming events it found as structured data. Then this code
+# double-checks everything before the app shows it:
+#   - the event must mention repair/fixing (Repair Cafe, Fixit Clinic,
+#     bike repair night, mending circle...)
+#   - the date must be today or later
+#   - the source link must be a page that actually came back from the
+#     web search, so an event can't be made up out of thin air
+#
+# Cost: web search is $10 per 1,000 searches plus normal tokens -- about
+# 10-15 cents per lookup here. Results are cached for 12 hours per
+# location, and there's a daily cap, so the API credit can't be drained.
+# ---------------------------------------------------------------------
+EVENT_SEARCH_DAILY_LIMIT = 40
+EVENT_CACHE_HOURS = 12
+REPAIR_WORDS = re.compile(r"repair|fix|mend|tinker|restart|darn", re.I)
+PACIFIC = ZoneInfo("America/Los_Angeles")
+
+EVENT_SEARCH_SYSTEM = """You find real, upcoming, in-person community repair events for the FixItFlow app.
+
+Use web search to look for events near the location you're given: Repair Cafes, Fixit Clinics, repair fairs, fix-it workshops, community bike repair nights, sewing/mending circles, electronics repair meetups. Check library, city, makerspace, and organizer event calendars. Do a few different searches (e.g. "repair cafe near <place>", "fixit clinic <city>", "<city> library repair event").
+
+Rules:
+- Only include events you actually saw on a page in your search results, with the date written on that page. Never guess or invent an event, date, time, or address.
+- If a page gives a regular schedule (e.g. "every 2nd Saturday, 10am-1pm"), you may list the next upcoming date and put the schedule in "recurring".
+- Only events dated from today up to about 3 months out, within roughly 25 miles (40 km) of the location. The location can be anywhere in the world: a US zip code, a postal code, or a city in any country. Search in the local language too if that helps (e.g. "Repair Café" is also used in the Netherlands, Germany, France, Japan...).
+- Write times as they're given locally, in 12-hour form like "2:00 PM".
+- source_url must be the exact URL of the page where you found the event.
+
+Reply with ONLY a JSON array (no other text, no markdown), each item:
+{"name": "...", "date": "YYYY-MM-DD", "start_time": "11:00 AM" or "", "end_time": "3:00 PM" or "", "venue": "...", "address": "street, city", "description": "one short sentence", "recurring": "" or "schedule text", "source_url": "https://..."}
+If you find nothing, reply with []"""
+
+
+def _host(url):
+    try:
+        h = urlparse(url).netloc.lower()
+        return h[4:] if h.startswith("www.") else h
+    except ValueError:
+        return ""
+
+
+def _extract_json_array(text):
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end <= start:
+        return []
+    try:
+        data = json.loads(text[start:end + 1])
+        return data if isinstance(data, list) else []
+    except ValueError:
+        return []
+
+
+def _clean_events(raw_events, seen_hosts, today):
+    latest = today + timedelta(days=120)
+    cleaned, seen = [], set()
+    for e in raw_events:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("name", "")).strip()[:140]
+        desc = str(e.get("description", "")).strip()[:240]
+        venue = str(e.get("venue", "")).strip()[:140]
+        url = str(e.get("source_url", "")).strip()
+        if not name or not url.startswith(("http://", "https://")):
+            continue
+        # must be about repair
+        if not REPAIR_WORDS.search(" ".join([name, desc, venue])):
+            continue
+        # must come from a page the search really returned
+        host = _host(url)
+        if not host or not any(host == h or host.endswith("." + h) or h.endswith("." + host) for h in seen_hosts):
+            continue
+        try:
+            day = datetime.strptime(str(e.get("date", "")), "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if day < today or day > latest:
+            continue
+        key = (name.lower(), day.isoformat())
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append({
+            "name": name,
+            "date": day.isoformat(),
+            "start_time": str(e.get("start_time", "")).strip()[:12],
+            "end_time": str(e.get("end_time", "")).strip()[:12],
+            "venue": venue,
+            "address": str(e.get("address", "")).strip()[:180],
+            "description": desc,
+            "recurring": str(e.get("recurring", "")).strip()[:100],
+            "source_url": url,
+        })
+    cleaned.sort(key=lambda ev: ev["date"])
+    return cleaned[:15]
+
+
+@app.route("/api/find-events", methods=["GET"])
+def find_events():
+    location = re.sub(r"\s+", " ", request.args.get("location", "")).strip()[:80]
+    if len(location) < 3:
+        return jsonify({"error": "Enter a zip code or city."}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
+
+    now = datetime.now(PACIFIC)
+    today = now.date()
+    cache_key = "events:" + location.lower()
+    cached = kv_get("cache", cache_key)
+    if cached:
+        try:
+            c = json.loads(cached)
+            if time.time() - c["at"] < EVENT_CACHE_HOURS * 3600:
+                events = [ev for ev in c["events"] if ev["date"] >= today.isoformat()]
+                return jsonify({"events": events, "cached": True})
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    count_key = "event-searches:" + today.isoformat()
+    used = int(kv_get("cache", count_key) or 0)
+    if used >= EVENT_SEARCH_DAILY_LIMIT:
+        return jsonify({"error": "Daily web-search limit reached. Try again tomorrow, or use the events list below."}), 429
+    kv_set("cache", count_key, str(used + 1))
+
+    messages = [{
+        "role": "user",
+        "content": f"Today is {now.strftime('%A, %B %d, %Y')}. Find upcoming community repair events near: {location}",
+    }]
+    seen_hosts, final_text = set(), ""
+    try:
+        for _ in range(3):  # a long search can pause; continue it up to 3 times
+            resp = requests.post(
+                ANTHROPIC_URL,
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": ANTHROPIC_VERSION,
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 4000,
+                    "system": EVENT_SEARCH_SYSTEM,
+                    "messages": messages,
+                    "tools": [{
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": 4,
+                        # No user_location on purpose: the place the person
+                        # typed (any zip/postal code or city, any country)
+                        # is in the message, so results aren't pulled
+                        # toward the US.
+                    }],
+                },
+                timeout=100,
+            )
+            data = resp.json()
+            if not resp.ok:
+                msg = (data.get("error") or {}).get("message", "Search failed")
+                return jsonify({"error": msg}), 502
+            content = data.get("content", [])
+            for block in content:
+                if block.get("type") == "web_search_tool_result" and isinstance(block.get("content"), list):
+                    for r in block["content"]:
+                        if r.get("url"):
+                            seen_hosts.add(_host(r["url"]))
+                if block.get("type") == "text":
+                    for cit in block.get("citations") or []:
+                        if cit.get("url"):
+                            seen_hosts.add(_host(cit["url"]))
+            final_text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
+            if data.get("stop_reason") != "pause_turn":
+                break
+            messages.append({"role": "assistant", "content": content})
+    except (requests.RequestException, ValueError) as e:
+        return jsonify({"error": "Search failed: " + str(e)}), 502
+
+    seen_hosts.discard("")
+    events = _clean_events(_extract_json_array(final_text), seen_hosts, today)
+    kv_set("cache", cache_key, json.dumps({"at": time.time(), "events": events}))
+    return jsonify({"events": events, "cached": False})
 
 
 # ---------------------------------------------------------------------
