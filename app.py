@@ -331,22 +331,33 @@ def ifixit_guide(guide_id):
 # ---------------------------------------------------------------------
 EVENT_SEARCH_DAILY_LIMIT = 40
 EVENT_CACHE_HOURS = 12
-REPAIR_WORDS = re.compile(r"repair|fix|mend|tinker|restart|darn", re.I)
+# Words that show an event is about repairing things or learning repair
+# skills. Workshops often don't say "repair" ("Bike Maintenance 101",
+# "Intro to Soldering", "Sewing Basics: Hems & Buttons"), so those count too.
+REPAIR_WORDS = re.compile(
+    r"repair|fix|mend|tinker|restart|darn|maintenance|maintain|tune-?up|"
+    r"solder|sewing|sew\b|alteration|upcycl|refurbish|troubleshoot|flat tire",
+    re.I,
+)
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 EVENT_SEARCH_SYSTEM = """You find real, upcoming, in-person community repair events for the FixItFlow app.
 
-Use web search to look for events near the location you're given: Repair Cafes, Fixit Clinics, repair fairs, fix-it workshops, community bike repair nights, sewing/mending circles, electronics repair meetups. Check library, city, makerspace, and organizer event calendars. Do a few different searches (e.g. "repair cafe near <place>", "fixit clinic <city>", "<city> library repair event").
+Find two kinds of things near the location you're given:
+1. EVENTS where people bring broken items to get them fixed: Repair Cafes, Fixit Clinics, repair fairs, fix-it nights, electronics repair meetups.
+2. WORKSHOPS and classes where people learn hands-on repair skills: bike maintenance/repair classes (bike co-ops, bike kitchens), sewing and mending classes, soldering and electronics repair classes, small appliance or furniture repair workshops, tool library and makerspace fix-it classes.
+
+Check library, city, makerspace, tool library, bike co-op, and organizer event calendars. Do several different searches and make sure at least one is for workshops/classes (e.g. "repair cafe near <place>", "fixit clinic <city>", "bike repair class <city>", "<city> makerspace repair workshop").
 
 Rules:
 - Only include events you actually saw on a page in your search results, with the date written on that page. Never guess or invent an event, date, time, or address.
 - If a page gives a regular schedule (e.g. "every 2nd Saturday, 10am-1pm"), you may list the next upcoming date and put the schedule in "recurring".
-- Only events dated from today up to about 3 months out, within roughly 25 miles (40 km) of the location. The location can be anywhere in the world: a US zip code, a postal code, or a city in any country. Search in the local language too if that helps (e.g. "Repair Café" is also used in the Netherlands, Germany, France, Japan...).
+- Only events dated from today up to about 3 months out, within the distance you're given of the location. The location can be anywhere in the world: a US zip code, a postal code, or a city in any country. Search in the local language too if that helps (e.g. "Repair Café" is also used in the Netherlands, Germany, France, Japan...).
 - Write times as they're given locally, in 12-hour form like "2:00 PM".
 - source_url must be the exact URL of the page where you found the event.
 
 Reply with ONLY a JSON array (no other text, no markdown), each item:
-{"name": "...", "date": "YYYY-MM-DD", "start_time": "11:00 AM" or "", "end_time": "3:00 PM" or "", "venue": "...", "address": "street, city", "description": "one short sentence", "recurring": "" or "schedule text", "source_url": "https://..."}
+{"type": "event" or "workshop", "name": "...", "date": "YYYY-MM-DD", "start_time": "11:00 AM" or "", "end_time": "3:00 PM" or "", "venue": "...", "address": "street, city", "description": "one short sentence", "recurring": "" or "schedule text", "source_url": "https://..."}
 If you find nothing, reply with []"""
 
 
@@ -399,6 +410,7 @@ def _clean_events(raw_events, seen_hosts, today):
             continue
         seen.add(key)
         cleaned.append({
+            "type": "workshop" if str(e.get("type", "")).lower() == "workshop" else "event",
             "name": name,
             "date": day.isoformat(),
             "start_time": str(e.get("start_time", "")).strip()[:12],
@@ -410,7 +422,7 @@ def _clean_events(raw_events, seen_hosts, today):
             "source_url": url,
         })
     cleaned.sort(key=lambda ev: ev["date"])
-    return cleaned[:15]
+    return cleaned[:20]
 
 
 @app.route("/api/find-events", methods=["GET"])
@@ -420,10 +432,16 @@ def find_events():
         return jsonify({"error": "Enter a zip code or city."}), 400
     if not ANTHROPIC_API_KEY:
         return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
+    try:
+        radius = int(request.args.get("radius", 25))
+    except ValueError:
+        radius = 25
+    if radius not in (10, 25, 50, 100):
+        radius = 25
 
     now = datetime.now(PACIFIC)
     today = now.date()
-    cache_key = "events:" + location.lower()
+    cache_key = f"events:{location.lower()}:{radius}"
     cached = kv_get("cache", cache_key)
     if cached:
         try:
@@ -442,7 +460,8 @@ def find_events():
 
     messages = [{
         "role": "user",
-        "content": f"Today is {now.strftime('%A, %B %d, %Y')}. Find upcoming community repair events near: {location}",
+        "content": (f"Today is {now.strftime('%A, %B %d, %Y')}. Find upcoming community repair events "
+                    f"within {radius} miles ({round(radius * 1.609)} km) of: {location}"),
     }]
     seen_hosts, final_text = set(), ""
     try:
@@ -462,7 +481,7 @@ def find_events():
                     "tools": [{
                         "type": "web_search_20250305",
                         "name": "web_search",
-                        "max_uses": 4,
+                        "max_uses": 5,
                         # No user_location on purpose: the place the person
                         # typed (any zip/postal code or city, any country)
                         # is in the message, so results aren't pulled
