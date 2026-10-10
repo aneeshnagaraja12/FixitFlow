@@ -213,6 +213,14 @@
         <option value="100">Within 100 miles</option>
       </select>
       <div id="nearest-status" class="nearest-status"></div>
+      <button class="log-btn" style="margin-top:12px;" id="web-search-btn" onclick="searchWebEvents()">🔎 Search the web for repair events near here</button>
+      <div style="font-size:0.68rem; color:var(--muted); margin-top:6px;">Type a zip/postal code or city above — anywhere in the world. Searches the web live, like Googling "repair events near me".</div>
+    </div>
+
+    <div id="web-events-section" style="display:none;">
+      <h2 class="section-title">Found on the web</h2>
+      <div id="web-events-status" class="nearest-status" style="margin:0 0 10px;"></div>
+      <div id="web-events-list"></div>
     </div>
 
     <h2 class="section-title">Fixit events</h2>
@@ -1288,7 +1296,7 @@ function buildICSContent(e) {
     "END:VEVENT","END:VCALENDAR"].join("\r\n");
 }
 function downloadICS(eventId) {
-  const e = EVENTS.find(ev => ev.id === eventId);
+  const e = EVENTS.concat(webEvents).find(ev => ev.id === eventId);
   if (!e) return;
   const content = buildICSContent(e);
   if (!content) { showToast("Couldn't build a calendar file for this event"); return; }
@@ -1301,6 +1309,119 @@ function downloadICS(eventId) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/* =========================================================
+   LIVE WEB SEARCH for repair events near a zip code or city.
+   The server (/api/find-events) has Claude search the web, then
+   checks every result: it must be about repair, dated today or
+   later, and come from a page the search actually returned.
+   Everything here is shown with textContent (never innerHTML),
+   since it comes from other websites.
+   ========================================================= */
+let webEvents = [];
+
+function makeEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text) el.textContent = text;
+  return el;
+}
+
+function formatEventDate(iso) {
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+async function searchWebEvents() {
+  const location = document.getElementById("address-input").value.trim();
+  const section = document.getElementById("web-events-section");
+  const status = document.getElementById("web-events-status");
+  const list = document.getElementById("web-events-list");
+  const btn = document.getElementById("web-search-btn");
+  section.style.display = "block";
+  list.innerHTML = "";
+  status.classList.remove("error");
+  if (location.length < 3) {
+    status.textContent = "Type a zip code or city in the box above first.";
+    status.classList.add("error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "🔎 Searching the web...";
+  status.textContent = `Searching for repair events near ${location}. This takes about 20–60 seconds.`;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  try {
+    const resp = await fetch(`/api/find-events?location=${encodeURIComponent(location)}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Search failed");
+    webEvents = (data.events || []).map((e, i) => ({
+      id: "web-" + i + "-" + e.date,
+      name: e.name,
+      date: e.date,
+      time: e.start_time ? (e.end_time ? `${e.start_time} – ${e.end_time}` : e.start_time) : "",
+      location: [e.venue, e.address].filter(Boolean).join(", "),
+      notes: (e.description || "") + (e.source_url ? " More info: " + e.source_url : ""),
+      description: e.description,
+      recurring: e.recurring,
+      source_url: e.source_url,
+    }));
+    renderWebEvents(location, data.cached);
+  } catch (err) {
+    status.textContent = "Couldn't search right now: " + err.message;
+    status.classList.add("error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔎 Search the web for repair events near here";
+  }
+}
+
+function renderWebEvents(location, cached) {
+  const status = document.getElementById("web-events-status");
+  const list = document.getElementById("web-events-list");
+  list.innerHTML = "";
+  if (!webEvents.length) {
+    status.textContent = `No upcoming repair events found on the web near ${location}. Try a nearby bigger city, or check the events list below.`;
+    return;
+  }
+  status.textContent = `${webEvents.length} upcoming repair event${webEvents.length === 1 ? "" : "s"} found near ${location}${cached ? " (searched recently)" : ""}. Found on the web, so confirm details on the event's page before you go.`;
+
+  webEvents.forEach(e => {
+    const card = makeEl("div", "event-card");
+    card.appendChild(makeEl("div", "event-name", e.name));
+    if (e.location) card.appendChild(makeEl("div", "event-meta", "📍 " + e.location));
+    card.appendChild(makeEl("div", "event-meta", "🗓️ " + formatEventDate(e.date) + (e.time ? " · " + e.time : "")));
+    if (e.recurring) card.appendChild(makeEl("div", "event-meta", "🔁 " + e.recurring));
+    if (e.description) card.appendChild(makeEl("div", "event-notes", e.description));
+
+    const footer = makeEl("div", "event-footer");
+    if (/^https?:\/\//i.test(e.source_url)) {
+      const src = makeEl("a", "spots ok", "Event page →");
+      src.href = e.source_url; src.target = "_blank"; src.rel = "noopener";
+      src.style.textDecoration = "none";
+      footer.appendChild(src);
+    } else {
+      footer.appendChild(makeEl("span"));
+    }
+    const btns = makeEl("div");
+    btns.style.display = "flex"; btns.style.gap = "6px";
+    const calLink = e.time ? buildCalendarLink(e) : null;
+    if (calLink) {
+      const g = makeEl("a", "rsvp-btn", "📅 Google");
+      g.href = calLink; g.target = "_blank"; g.rel = "noopener";
+      g.style.cssText = "text-decoration:none; padding:6px 10px; font-size:0.7rem;";
+      btns.appendChild(g);
+      const a = makeEl("button", "rsvp-btn", " Apple/Outlook");
+      a.style.cssText = "padding:6px 10px; font-size:0.7rem;";
+      a.onclick = () => downloadICS(e.id);
+      btns.appendChild(a);
+    }
+    footer.appendChild(btns);
+    card.appendChild(footer);
+    list.appendChild(card);
+  });
 }
 
 async function renderEvents() {
