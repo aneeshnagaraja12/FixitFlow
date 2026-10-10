@@ -201,42 +201,23 @@
   <div class="screen" id="screen-events">
     <h2 class="section-title">Free repair events near you</h2>
     <div class="card">
-      <label class="f">Find events within a distance of you</label>
-      <div style="display:flex; gap:8px;">
-        <input type="text" class="f-input" id="address-input" placeholder="Enter your address" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') findNearest()">
-        <button class="rsvp-btn" style="flex-shrink:0; padding:0 16px;" onclick="findNearest()" id="find-nearest-btn">Find</button>
-      </div>
+      <label class="f">Where are you?</label>
+      <input type="text" class="f-input" id="address-input" placeholder="Zip code or city — anywhere in the world" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') searchWebEvents()">
       <select id="radius-select" class="f-input" style="margin-top:8px; margin-bottom:0;">
         <option value="10">Within 10 miles</option>
         <option value="25" selected>Within 25 miles</option>
         <option value="50">Within 50 miles</option>
         <option value="100">Within 100 miles</option>
       </select>
-      <div id="nearest-status" class="nearest-status"></div>
-      <button class="log-btn" style="margin-top:12px;" id="web-search-btn" onclick="searchWebEvents()">🔎 Search the web for repair events near here</button>
-      <div style="font-size:0.68rem; color:var(--muted); margin-top:6px;">Type a zip/postal code or city above — anywhere in the world. Searches the web live, like Googling "repair events near me".</div>
+      <button class="log-btn" style="margin-top:12px;" id="web-search-btn" onclick="searchWebEvents()">🔎 Search for repair events</button>
+      <div style="font-size:0.68rem; color:var(--muted); margin-top:6px;">Searches the web live, like Googling "repair events near me". Finds repair events (Repair Cafés, Fixit Clinics) and workshops where you learn to fix things yourself (bike repair, sewing, soldering and more).</div>
     </div>
 
     <div id="web-events-section" style="display:none;">
-      <h2 class="section-title">Found on the web</h2>
+      <h2 class="section-title">Upcoming repair events & workshops</h2>
       <div id="web-events-status" class="nearest-status" style="margin:0 0 10px;"></div>
+      <div class="log-fix-chips" id="web-events-filter" style="margin-top:0;"></div>
       <div id="web-events-list"></div>
-    </div>
-
-    <h2 class="section-title">Fixit events</h2>
-    <div id="events-list"></div>
-
-    <h2 class="section-title">Workshops</h2>
-    <p class="empty-note" style="text-align:left; padding:0 0 10px; font-size:0.72rem;">These aren't one-time events — they're real, recurring resources. Schedules can shift, so check their own site for the current week.</p>
-    <div class="card">
-      <div class="listing-title">Maker Nexus (Sunnyvale)</div>
-      <div class="listing-desc">A full makerspace with hands-on classes every week in electronics, sewing, woodworking, 3D printing, and laser cutting. No membership needed to take a class.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://www.makernexus.org/classes-week-view" target="_blank" rel="noopener">See this week's classes →</a>
-    </div>
-    <div class="card">
-      <div class="listing-title">Bike Kitchen (San Francisco)</div>
-      <div class="listing-desc">Volunteer-run bike shop where you fix your own bike with hands-on help from volunteer mechanics — you leave knowing how to do it yourself next time. Open Tue & Wed 6–9 PM, Sat 9 AM–12 PM.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://bikekitchen.org/classes/" target="_blank" rel="noopener">See scheduled classes →</a>
     </div>
   </div>
 
@@ -344,81 +325,6 @@
 </div>
 
 <script>
-const EVENTS = [
-  { id: "evt-morganhill-sep12", name: "Repair Café Silicon Valley — Morgan Hill Library",
-    location: "660 W Main Ave, Morgan Hill", lat: 37.1243352, lng: -121.6629033,
-    date: "2026-09-12", time: "11:00 AM – 3:00 PM",
-    notes: "First ever event at this library. General repairs.", capacity: 40, registered: 11 },
-  { id: "evt-saratoga-westvalley-sep16", name: "Repair Café Silicon Valley — West Valley College",
-    location: "14000 Fruitvale Ave, Saratoga", lat: 37.2654906, lng: -122.0110235,
-    date: "2026-09-16", time: "10:00 AM – 2:00 PM",
-    notes: "Open to the public as well as faculty and students.", capacity: 35, registered: 6 },
-  { id: "evt-gilroy-sep19", name: "Repair Café Silicon Valley — Gilroy Library",
-    location: "350 W 6th St, Gilroy", lat: 37.0051296, lng: -121.5727007,
-    date: "2026-09-19", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs, limit two items per household.", capacity: 35, registered: 18 },
-  { id: "evt-paloalto-sep24", name: "Repair Café Silicon Valley — Rinconada Library (evening)",
-    location: "1213 Newell Road, Palo Alto", lat: 37.445005, lng: -122.139016,
-    date: "2026-09-24", time: "5:00 PM – 7:00 PM",
-    notes: "Sewing, jewelry, and general repairs — no bikes.", capacity: 25, registered: 9 },
-  { id: "evt-mtnview-hackerdojo-sep27", name: "Repair Café Silicon Valley — Hacker Dojo",
-    location: "855 Maude Ave, Mountain View", lat: 37.396254, lng: -122.049074,
-    date: "2026-09-27", time: "11:00 AM – 3:00 PM",
-    notes: "Household items, bikes, and electronics welcome.", capacity: 50, registered: 14 },
-  { id: "evt-sanjose-gardenfair-oct3", name: "Repair Café Silicon Valley — Fall Garden Fair",
-    location: "5283 Snell Ave, San Jose", lat: 37.2636604, lng: -121.8314266,
-    date: "2026-10-03", time: "9:00 AM – 2:00 PM",
-    notes: "Focused on garden-related item repairs.", capacity: 30, registered: 4 },
-  { id: "evt-saratoga-library-oct4", name: "Repair Café Silicon Valley — Saratoga Library",
-    location: "13650 Saratoga Ave, Saratoga", lat: 37.2701224, lng: -122.0151327,
-    date: "2026-10-04", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs, limit two items per household.", capacity: 35, registered: 7 },
-  { id: "evt-sunnyvale-makernexus-oct10", name: "Maker Nexus — Fall Family Repair Café",
-    location: "1330 Orleans Dr, Sunnyvale", lat: 37.4119886, lng: -122.0062249,
-    date: "2026-10-10", time: "11:00 AM – 3:00 PM",
-    notes: "Family-focused — kids welcome to watch and participate.", capacity: 40, registered: 10 },
-  { id: "evt-sanjose-defrank-oct19", name: "Repair Café Silicon Valley — Billy DeFrank LGBTQ+ Community Center",
-    location: "938 The Alameda, San Jose", lat: 37.3315092, lng: -121.9080855,
-    date: "2026-10-19", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs — no bike repairs at this event.", capacity: 30, registered: 3 },
-  { id: "evt-mtnview-seniorcenter-oct25", name: "Repair Café Silicon Valley — Mountain View Senior Center",
-    location: "266 Escuela Ave, Mountain View", lat: 37.398749, lng: -122.093955,
-    date: "2026-10-25", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs, limit two items per household.", capacity: 45, registered: 12 },
-  { id: "evt-losgatos-nov1", name: "Repair Café Silicon Valley — Los Gatos Library",
-    location: "100 Villa Ave, Los Gatos", lat: 37.2202111, lng: -121.9782556,
-    date: "2026-11-01", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs: electronics, bikes, clothing, more.", capacity: 40, registered: 5 },
-  { id: "evt-paloalto-moah-nov8", name: "Repair Café Silicon Valley — Museum of American Heritage",
-    location: "351 Homer Ave, Palo Alto", lat: 37.4445267, lng: -122.157476,
-    date: "2026-11-08", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs, limit two items per household.", capacity: 40, registered: 8 },
-  { id: "evt-redwoodcity-fixitclinic-oct3", name: "Fixit Clinic — Redwood City Public Library",
-    location: "1044 Middlefield Rd, Redwood City", lat: 37.4840501, lng: -122.2273354,
-    date: "2026-10-03", time: "10:30 AM – 12:30 PM",
-    notes: "Volunteer Fixit Coaches help troubleshoot & repair. Carry-in only, no oversize items.", capacity: 25, registered: 6 },
-  { id: "evt-oakland-fixitclinic-oct14", name: "Fixit Clinic — Oakland Public Library",
-    location: "125 14th St, Oakland", lat: 37.8009514, lng: -122.2636808,
-    date: "2026-10-14", time: "5:30 PM – 7:00 PM",
-    notes: "Repair advice session — bring gadgets, small appliances, and more.", capacity: 20, registered: 4 },
-  { id: "evt-oakland-bikery-oct4", name: "The Bikery — Community Bike Repair",
-    location: "1246 23rd Ave, Oakland", lat: 37.7830556, lng: -122.2361111,
-    date: "2026-10-04", time: "1:00 PM (listing didn't give an end time)",
-    notes: "Bike-specific repair workshop, run by a nonprofit community bike shop.", capacity: 20, registered: 3 },
-  { id: "evt-santaclara-northside-oct8", name: "Repair Café Silicon Valley — Northside Branch Library",
-    location: "695 Moreland Way, Santa Clara", lat: 37.3957452, lng: -121.9469708,
-    date: "2026-10-08", time: "4:30 PM – 6:30 PM",
-    notes: "First-ever weeknight event in Santa Clara. Sewing, jewelry, and general repairs.", capacity: 30, registered: 5 },
-  { id: "evt-sf-haightnopa-oct10", name: "Haight-NOPA Repair Café — Park Branch Library",
-    location: "1833 Page St, San Francisco", lat: 37.7701548, lng: -122.4510289,
-    date: "2026-10-10", time: "2:00 PM – 4:30 PM",
-    notes: "Neighbor-run repair café, not library-sponsored. Last entry 4:00 PM.", capacity: 25, registered: 6 },
-  { id: "evt-sanjose-tzuchi-dec6", name: "Repair Café Silicon Valley — Tzu Chi Foundation",
-    location: "2355 Oakland Rd, San Jose", lat: 37.40275, lng: -121.9036470,
-    date: "2026-12-06", time: "11:00 AM – 3:00 PM",
-    notes: "General repairs, limit two items per household.", capacity: 30, registered: 7 },
-];
-
 const CATEGORIES = ["Electronics", "Small Appliances", "Bikes", "Textiles", "Furniture", "Jewelry", "Garden & Outdoor", "Other"];
 
 const ELECTRONICS_IMPACT = {
@@ -1201,59 +1107,6 @@ async function sendChat() {
   }
 }
 
-let userDistances = null;
-let activeRadius = null;
-
-async function geocodeAddress(address) {
-  const resp = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
-  if (!resp.ok) throw new Error("Geocoding request failed");
-  const data = await resp.json();
-  return { lat: data.lat, lng: data.lng };
-}
-
-function distanceMiles(lat1, lng1, lat2, lng2) {
-  const R = 3958.8;
-  const toRad = d => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-async function findNearest() {
-  const input = document.getElementById("address-input");
-  const address = input.value.trim();
-  const radius = parseInt(document.getElementById("radius-select").value, 10);
-  const status = document.getElementById("nearest-status");
-  const btn = document.getElementById("find-nearest-btn");
-  if (!address) { status.textContent = "Enter an address first."; status.classList.add("error"); return; }
-
-  btn.disabled = true;
-  status.classList.remove("error");
-  status.textContent = "Finding your location...";
-
-  try {
-    const { lat, lng } = await geocodeAddress(address);
-    userDistances = {};
-    EVENTS.forEach(e => { userDistances[e.id] = distanceMiles(lat, lng, e.lat, e.lng); });
-    activeRadius = radius;
-
-    const withinRadius = EVENTS.filter(e => userDistances[e.id] <= radius);
-    if (withinRadius.length === 0) {
-      const closest = EVENTS.reduce((a, b) => (userDistances[a.id] < userDistances[b.id] ? a : b));
-      status.textContent = `No events within ${radius} miles. Closest is ${userDistances[closest.id].toFixed(1)} mi away — try a bigger radius.`;
-    } else {
-      status.textContent = `${withinRadius.length} event${withinRadius.length === 1 ? "" : "s"} within ${radius} miles.`;
-    }
-    renderEvents();
-  } catch (err) {
-    status.textContent = "Couldn't find that address — try adding city and state.";
-    status.classList.add("error");
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 function parseTime12h(str) {
   const m = str.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (!m) return null;
@@ -1296,7 +1149,7 @@ function buildICSContent(e) {
     "END:VEVENT","END:VCALENDAR"].join("\r\n");
 }
 function downloadICS(eventId) {
-  const e = EVENTS.concat(webEvents).find(ev => ev.id === eventId);
+  const e = webEvents.find(ev => ev.id === eventId);
   if (!e) return;
   const content = buildICSContent(e);
   if (!content) { showToast("Couldn't build a calendar file for this event"); return; }
@@ -1335,6 +1188,7 @@ function formatEventDate(iso) {
 
 async function searchWebEvents() {
   const location = document.getElementById("address-input").value.trim();
+  const radius = parseInt(document.getElementById("radius-select").value, 10) || 25;
   const section = document.getElementById("web-events-section");
   const status = document.getElementById("web-events-status");
   const list = document.getElementById("web-events-list");
@@ -1343,22 +1197,23 @@ async function searchWebEvents() {
   list.innerHTML = "";
   status.classList.remove("error");
   if (location.length < 3) {
-    status.textContent = "Type a zip code or city in the box above first.";
+    status.textContent = "Type a zip code or city first.";
     status.classList.add("error");
     return;
   }
 
   btn.disabled = true;
   btn.textContent = "🔎 Searching the web...";
-  status.textContent = `Searching for repair events near ${location}. This takes about 20–60 seconds.`;
+  status.textContent = `Searching the web for repair events within ${radius} miles of ${location}. This takes about 20–60 seconds.`;
   section.scrollIntoView({ behavior: "smooth", block: "start" });
 
   try {
-    const resp = await fetch(`/api/find-events?location=${encodeURIComponent(location)}`);
+    const resp = await fetch(`/api/find-events?location=${encodeURIComponent(location)}&radius=${radius}`);
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Search failed");
     webEvents = (data.events || []).map((e, i) => ({
       id: "web-" + i + "-" + e.date,
+      type: e.type === "workshop" ? "workshop" : "event",
       name: e.name,
       date: e.date,
       time: e.start_time ? (e.end_time ? `${e.start_time} – ${e.end_time}` : e.start_time) : "",
@@ -1368,28 +1223,57 @@ async function searchWebEvents() {
       recurring: e.recurring,
       source_url: e.source_url,
     }));
-    renderWebEvents(location, data.cached);
+    renderWebEvents(location, radius, data.cached);
   } catch (err) {
     status.textContent = "Couldn't search right now: " + err.message;
     status.classList.add("error");
   } finally {
     btn.disabled = false;
-    btn.textContent = "🔎 Search the web for repair events near here";
+    btn.textContent = "🔎 Search for repair events";
   }
 }
 
-function renderWebEvents(location, cached) {
+let webEventsFilter = "all";
+
+function renderWebEventsFilter() {
+  const wrap = document.getElementById("web-events-filter");
+  wrap.innerHTML = "";
+  if (!webEvents.length) return;
+  const counts = { all: webEvents.length, event: webEvents.filter(e => e.type === "event").length, workshop: webEvents.filter(e => e.type === "workshop").length };
+  [["all", "All"], ["event", "🔧 Repair events"], ["workshop", "🎓 Workshops"]].forEach(([key, label]) => {
+    const chip = makeEl("span", "device-chip" + (webEventsFilter === key ? " selected" : ""), `${label} (${counts[key]})`);
+    chip.onclick = () => { webEventsFilter = key; renderWebEventsFilter(); renderWebEventCards(); };
+    wrap.appendChild(chip);
+  });
+}
+
+function renderWebEvents(location, radius, cached) {
   const status = document.getElementById("web-events-status");
   const list = document.getElementById("web-events-list");
   list.innerHTML = "";
+  webEventsFilter = "all";
+  renderWebEventsFilter();
   if (!webEvents.length) {
-    status.textContent = `No upcoming repair events found on the web near ${location}. Try a nearby bigger city, or check the events list below.`;
+    status.textContent = `No upcoming repair events found within ${radius} miles of ${location}. Try a bigger distance or a nearby larger city.`;
     return;
   }
-  status.textContent = `${webEvents.length} upcoming repair event${webEvents.length === 1 ? "" : "s"} found near ${location}${cached ? " (searched recently)" : ""}. Found on the web, so confirm details on the event's page before you go.`;
+  status.textContent = `${webEvents.length} upcoming repair event${webEvents.length === 1 ? "" : "s"} found within ${radius} miles of ${location}${cached ? " (searched recently)" : ""}. Found on the web, so confirm details on the event's page before you go.`;
 
-  webEvents.forEach(e => {
+  renderWebEventCards();
+}
+
+function renderWebEventCards() {
+  const list = document.getElementById("web-events-list");
+  list.innerHTML = "";
+  const shown = webEvents.filter(e => webEventsFilter === "all" || e.type === webEventsFilter);
+  if (!shown.length) {
+    list.appendChild(makeEl("p", "empty-note", webEventsFilter === "workshop" ? "No workshops found nearby this time. Try a bigger distance." : "No repair events found nearby this time. Try a bigger distance."));
+    return;
+  }
+  shown.forEach(e => {
     const card = makeEl("div", "event-card");
+    const tag = makeEl("div", "distance-badge", e.type === "workshop" ? "🎓 Workshop: learn to fix it yourself" : "🔧 Repair event: bring your broken stuff");
+    card.appendChild(tag);
     card.appendChild(makeEl("div", "event-name", e.name));
     if (e.location) card.appendChild(makeEl("div", "event-meta", "📍 " + e.location));
     card.appendChild(makeEl("div", "event-meta", "🗓️ " + formatEventDate(e.date) + (e.time ? " · " + e.time : "")));
@@ -1421,52 +1305,6 @@ function renderWebEvents(location, cached) {
     footer.appendChild(btns);
     card.appendChild(footer);
     list.appendChild(card);
-  });
-}
-
-async function renderEvents() {
-  const list = document.getElementById("events-list");
-  list.innerHTML = "";
-  let sorted = userDistances
-    ? EVENTS.filter(e => userDistances[e.id] <= activeRadius).sort((a, b) => userDistances[a.id] - userDistances[b.id])
-    : [...EVENTS].sort((a, b) => a.date.localeCompare(b.date));
-
-  if (userDistances && sorted.length === 0) {
-    list.innerHTML = '<p class="empty-note">No events within that radius. Try a bigger distance above.</p>';
-    return;
-  }
-  const nearestId = userDistances && sorted.length ? sorted[0].id : null;
-
-  sorted.forEach(e => {
-    const spotsLeft = Math.max(0, e.capacity - e.registered);
-    const full = spotsLeft <= 0;
-    let spotsClass = "ok", spotsLabel = spotsLeft + " spots left";
-    if (full) { spotsClass = "full"; spotsLabel = "Full"; }
-    else if (spotsLeft <= 8) { spotsClass = "low"; spotsLabel = "Only " + spotsLeft + " spots left"; }
-
-    const distanceBadge = userDistances
-      ? `<div class="distance-badge">📍 ${userDistances[e.id].toFixed(1)} mi away${e.id === nearestId ? " · Closest" : ""}</div>`
-      : "";
-    const calLink = buildCalendarLink(e);
-    const hasIcs = getEventStartEnd(e) !== null;
-
-    const div = document.createElement("div");
-    div.className = "event-card" + (e.id === nearestId ? " nearest" : "");
-    div.innerHTML = `
-      ${distanceBadge}
-      <div class="event-name">${e.name}</div>
-      <div class="event-meta">${e.location}</div>
-      <div class="event-meta">${e.date} · ${e.time}</div>
-      <div class="event-notes">${e.notes}</div>
-      <div class="event-footer">
-        <span class="spots ${spotsClass}">${spotsLabel}</span>
-        <div style="display:flex; gap:6px;">
-          ${calLink ? `<a class="rsvp-btn" href="${calLink}" target="_blank" rel="noopener" style="text-decoration:none; padding:6px 10px; font-size:0.7rem;">📅 Google</a>` : ""}
-          ${hasIcs ? `<button class="rsvp-btn" style="padding:6px 10px; font-size:0.7rem;" onclick="downloadICS('${e.id}')"> Apple/Outlook</button>` : ""}
-        </div>
-      </div>
-    `;
-    list.appendChild(div);
   });
 }
 
@@ -1662,7 +1500,6 @@ function renderSuccessStats() {
 window.addEventListener("DOMContentLoaded", () => {
   renderHome();
   initChat();
-  renderEvents();
   renderLogChips();
   renderImpact();
   renderSuccessStats();
