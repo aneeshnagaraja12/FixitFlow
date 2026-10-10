@@ -612,7 +612,12 @@ Guidelines:
 Trusted sources:
 - Base your advice on established, reputable repair knowledge. When you point someone to a resource, only use these trusted sources: iFixit (step-by-step guides for specific makes and models), the Restart Project Wiki at wiki.restarters.net (general repair principles and safety for whole classes of devices), the manufacturer's official support site or user manual, and the U.S. Consumer Product Safety Commission at cpsc.gov/Recalls for product recalls.
 - Never invent a guide, video, part number, or source. If you aren't confident about a specific fix, say so plainly and suggest a local repair event instead of guessing.
-- If the item sparks, smokes, smells like burning, overheats, or has a swollen battery, tell them to stop using it and check cpsc.gov/Recalls for a recall before attempting any repair.`;
+- If the item sparks, smokes, smells like burning, overheats, or has a swollen battery, tell them to stop using it and check cpsc.gov/Recalls for a recall before attempting any repair.
+
+Repair links:
+- The app automatically shows an iFixit guide link and a YouTube video link for this exact repair right under your reply. So don't write out any web addresses yourself and don't say "go to ifixit.com" -- if it helps, say "check the guide and video links below."
+- At the very end of EVERY reply, on its own line, write SEARCH: followed by a 3-6 word search phrase naming the specific item and the specific repair, starting with the item. Include the brand and model if you know it from the conversation or a photo. Examples: "SEARCH: Hamilton Beach toaster heating element replacement", "SEARCH: iPhone 12 battery replacement", "SEARCH: bike chain fell off fix". Use the whole conversation, so a follow-up like "how do I open it?" still names the item. The app removes this line before the person sees or hears your reply.
+- If the message isn't about a repair at all (like "thanks!"), write SEARCH: none`;
 
 // Appended only when the person is talking by voice (conversation
 // mode), so replies actually sound like a person talking, not a
@@ -623,7 +628,8 @@ The person is talking to you out loud right now, hands-on with their repair, and
 - Talk the way a person actually would, not like a written article. No markdown, no bullet points, no numbered lists, no bold or headers -- say "first," "then," "after that" instead.
 - Never include a raw URL or link -- a screen reader saying "h-t-t-p-s colon slash slash" out loud sounds broken. Just mention a resource by name.
 - Keep it shorter than usual, more like 40-60 words -- a spoken answer needs to be easy to hold in your head, not read back over.
-- Give ONE clear next step at a time rather than a full list, since they'll ask for what's next once they've tried it.`;
+- Give ONE clear next step at a time rather than a full list, since they'll ask for what's next once they've tried it.
+- Still end with the SEARCH: line exactly as described above. It's removed before your reply is read aloud, and the guide and video links show on their screen.`;
 
 function resizeImageFile(file, maxDim = 1024, quality = 0.85) {
   return new Promise((resolve, reject) => {
@@ -793,6 +799,80 @@ async function fetchIfixitGuides(query) {
     const data = await resp.json();
     return (data.results || []).filter(g => g.title && g.url);
   } catch (e) { return []; }
+}
+
+async function fetchYoutubeVideos(query) {
+  try {
+    const resp = await fetch(`/api/youtube-search?q=${encodeURIComponent(query)}`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return (data.results || []).filter(v => v.title && v.url);
+  } catch (e) { return []; }
+}
+
+// The Coach ends every reply with a hidden line like
+// "SEARCH: Hamilton Beach toaster heating element replacement" -- its own
+// summary of the exact repair, using the whole conversation (and photo).
+// That makes a much more specific search than the person's raw words.
+// This pulls that line out so the person never sees or hears it.
+function extractSearchLine(reply) {
+  let query = null;
+  const clean = reply.replace(/^[ \t>*_]*SEARCH:[ \t]*(.*)$/gim, (match, q) => {
+    query = q.replace(/[*_"“”]/g, "").trim();
+    return "";
+  }).trim();
+  if (query && /^none\.?$/i.test(query)) query = "";   // "" = not a repair question
+  return { clean: clean || reply.replace(/SEARCH:.*$/gim, "").trim(), query };
+}
+
+// Always shows one iFixit link and one YouTube link for the repair.
+// Specific guides/videos when the searches find them; otherwise a link
+// to iFixit's / YouTube's own search results for that exact repair, so
+// a link is never missing and never just the iFixit home page.
+async function renderRepairLinks(query, linkRow) {
+  const loading = document.createElement("span");
+  loading.className = "suggest-chip";
+  loading.style.opacity = "0.7";
+  loading.textContent = "🔎 Finding a guide and video for: " + query;
+  linkRow.prepend(loading);
+
+  const ytQuery = /\b(repair|fix|replace|replacement|install)\b/i.test(query) ? query : query + " repair";
+  const [guides, videos] = await Promise.all([fetchIfixitGuides(query), fetchYoutubeVideos(ytQuery)]);
+
+  const makeChip = (href, label) => {
+    const a = document.createElement("a");
+    a.href = href; a.target = "_blank"; a.rel = "noopener";
+    a.className = "suggest-chip"; a.style.textDecoration = "none";
+    a.textContent = label;
+    return a;
+  };
+  const chips = [];
+  if (guides.length) {
+    guides.slice(0, 2).forEach(g => chips.push(makeChip(g.url, "🔧 iFixit: " + g.title)));
+  } else {
+    chips.push(makeChip(`https://www.ifixit.com/Search?query=${encodeURIComponent(query)}`, `🔧 iFixit guides for "${query}"`));
+  }
+  if (videos.length) {
+    videos.slice(0, 2).forEach(v => chips.push(makeChip(v.url, "📺 " + v.title + (v.channel ? " — " + v.channel : ""))));
+  } else {
+    chips.push(makeChip(`https://www.youtube.com/results?search_query=${encodeURIComponent(ytQuery)}`, `📺 YouTube videos: "${ytQuery}"`));
+  }
+  loading.replaceWith(...chips);
+
+  // Real step-by-step photos from the top iFixit guide, loaded only
+  // when tapped (each guide is a separate request).
+  const topGuide = guides.find(g => g.guideid);
+  if (topGuide) {
+    const photoBtn = document.createElement("span");
+    photoBtn.className = "suggest-chip";
+    photoBtn.style.alignSelf = "flex-start";
+    photoBtn.style.marginBottom = "14px";
+    photoBtn.textContent = "📸 Show step-by-step photos";
+    photoBtn.onclick = () => showGuideSteps(topGuide.guideid, photoBtn);
+    linkRow.insertAdjacentElement("afterend", photoBtn);
+  }
+  const screen = document.getElementById("screen-bot");
+  if (screen) screen.scrollTop = screen.scrollHeight;
 }
 
 function lookupSuccessStat(query) {
@@ -1041,20 +1121,16 @@ async function sendChat() {
   const typingBubble = renderBubble("bot", "FixIt Coach is thinking...");
   typingBubble.classList.add("typing");
 
-  let ifixitGuides = [];
   let stat = null;
   let deviceMatch = null;
   if (text) {
-    [ifixitGuides, stat] = await Promise.all([fetchIfixitGuides(buildRepairSearchQuery(text)), Promise.resolve(lookupSuccessStat(text))]);
+    stat = lookupSuccessStat(text);
     deviceMatch = lookupDeviceTips(text);
   }
 
   let groundingNote = "";
   if (deviceMatch) {
     groundingNote += `\n\n[Our own curated tips for a ${deviceMatch.keyword}: ${deviceMatch.tips.join(" ")} Feel free to draw on these, in your own words.]`;
-  }
-  if (ifixitGuides.length) {
-    groundingNote += "\n\n[Real iFixit guides found for this: " + ifixitGuides.map(g => `"${g.title}" (${g.url})`).join("; ") + ". Mention the most relevant one by name and link if it fits naturally.]";
   }
   if (stat) {
     groundingNote += `\n\n[Real data point: in the Open Repair Alliance's community dataset, ${stat.label} repairs at community events succeed ${stat.overall}% of the time (n=${stat.overallN}). You can mention this stat if it's encouraging or relevant, but don't force it in.]`;
@@ -1071,66 +1147,44 @@ async function sendChat() {
     const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ system: activeSystemPrompt, messages: apiMessages }) });
     const data = await response.json();
     const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text);
-    const reply = textBlocks.join("\n").trim() || "Sorry, I didn't catch that -- could you try rephrasing?";
+    const rawReply = textBlocks.join("\n").trim();
+    if (!rawReply) throw new Error(data.error && data.error.message ? data.error.message : "empty reply");
+    const { clean: reply, query: coachQuery } = extractSearchLine(rawReply);
 
     typingBubble.remove();
     renderBubble("bot", reply);
     speakText(reply, isVoiceMessage);
     chatHistory.push({ role: "assistant", content: reply });
 
-    if (ifixitGuides.length || text) {
-      const log = document.getElementById("chat-log");
-      const linkRow = document.createElement("div");
-      linkRow.className = "suggest-row";
-      linkRow.style.marginTop = "-4px";
-      ifixitGuides.slice(0, 2).forEach(g => {
-        const a = document.createElement("a");
-        a.href = g.url; a.target = "_blank"; a.rel = "noopener";
-        a.className = "suggest-chip"; a.style.textDecoration = "none";
-        a.textContent = "🔗 " + g.title;
-        linkRow.appendChild(a);
-      });
-      if (text) {
-        const ytLink = document.createElement("a");
-        ytLink.href = `https://www.youtube.com/results?search_query=${encodeURIComponent(text + " repair")}`;
-        ytLink.target = "_blank"; ytLink.rel = "noopener";
-        ytLink.className = "suggest-chip"; ytLink.style.textDecoration = "none";
-        ytLink.textContent = "📺 Search YouTube for repair videos";
-        linkRow.appendChild(ytLink);
-      }
-      if (text && SAFETY_WARNING_WORDS.test(text)) {
-        const recallLink = document.createElement("a");
-        recallLink.href = "https://www.cpsc.gov/Recalls";
-        recallLink.target = "_blank"; recallLink.rel = "noopener";
-        recallLink.className = "suggest-chip"; recallLink.style.textDecoration = "none";
-        recallLink.textContent = "⚠️ Check for a safety recall (CPSC)";
-        linkRow.appendChild(recallLink);
-      }
-      if (text) {
-        pickDiagrams(text).forEach(key => {
-          const chip = document.createElement("span");
-          chip.className = "suggest-chip";
-          chip.textContent = "📐 Diagram: " + DIAGRAMS[key].title;
-          chip.onclick = () => showDiagram(key, chip, linkRow);
-          linkRow.appendChild(chip);
-        });
-      }
-      log.appendChild(linkRow);
+    // The repair to search for: the Coach's own specific summary if it
+    // gave one, otherwise the key words from what the person typed.
+    // coachQuery === "" means the Coach said this wasn't a repair
+    // question (e.g. "thanks!"), so no links.
+    const searchQuery = coachQuery === "" ? "" : (coachQuery || (text ? buildRepairSearchQuery(text) : ""));
 
-      // Real step-by-step photos from the top iFixit guide, loaded only
-      // when tapped (each guide is a separate request, so we don't fetch
-      // photos nobody asked to see).
-      const topGuide = ifixitGuides.find(g => g.guideid);
-      if (topGuide) {
-        const photoBtn = document.createElement("span");
-        photoBtn.className = "suggest-chip";
-        photoBtn.style.alignSelf = "flex-start";
-        photoBtn.style.marginBottom = "14px";
-        photoBtn.textContent = "📸 Show step-by-step photos";
-        photoBtn.onclick = () => showGuideSteps(topGuide.guideid, photoBtn);
-        log.appendChild(photoBtn);
-      }
+    const log = document.getElementById("chat-log");
+    const linkRow = document.createElement("div");
+    linkRow.className = "suggest-row";
+    linkRow.style.marginTop = "-4px";
+    if (text && SAFETY_WARNING_WORDS.test(text)) {
+      const recallLink = document.createElement("a");
+      recallLink.href = "https://www.cpsc.gov/Recalls";
+      recallLink.target = "_blank"; recallLink.rel = "noopener";
+      recallLink.className = "suggest-chip"; recallLink.style.textDecoration = "none";
+      recallLink.textContent = "⚠️ Check for a safety recall (CPSC)";
+      linkRow.appendChild(recallLink);
     }
+    if (text) {
+      pickDiagrams(text).forEach(key => {
+        const chip = document.createElement("span");
+        chip.className = "suggest-chip";
+        chip.textContent = "📐 Diagram: " + DIAGRAMS[key].title;
+        chip.onclick = () => showDiagram(key, chip, linkRow);
+        linkRow.appendChild(chip);
+      });
+    }
+    if (searchQuery || linkRow.children.length) log.appendChild(linkRow);
+    if (searchQuery) await renderRepairLinks(searchQuery, linkRow);
   } catch (err) {
     typingBubble.remove();
     renderBubble("bot", "I'm having trouble connecting right now. In the meantime, try the Events tab to find a Repair Café coach who can help in person.");
