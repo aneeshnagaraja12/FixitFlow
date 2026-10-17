@@ -155,7 +155,7 @@
       <div class="hero-name">FixItFlow</div>
       <div class="hero-mission">Keeping things out of the landfill, one repair at a time. Diagnose it, get matched with help, and see the difference your fix makes.</div>
       <div class="stat-strip" id="home-stats">
-        <div class="stat-chip"><div class="n" id="home-stat-repairs">–</div><div class="l">fixes logged</div></div>
+        <div class="stat-chip"><div class="n" id="home-stat-repairs">–</div><div class="l">your fixes</div></div>
         <div class="stat-chip"><div class="n" id="home-stat-weight">–</div><div class="l">kg saved</div></div>
         <div class="stat-chip"><div class="n" id="home-stat-co2">–</div><div class="l">kg CO2 avoided</div></div>
       </div>
@@ -174,8 +174,8 @@
       </div>
       <div class="quick-tile" onclick="goTab('donate')">
         <span class="qi">🎁</span>
-        <div class="qt">Spare Parts</div>
-        <div class="qd">Donate or find parts</div>
+        <div class="qt">Donate & Recycle</div>
+        <div class="qd">Find drop-offs near you</div>
       </div>
     </div>
   </div>
@@ -224,7 +224,7 @@
   <div class="screen" id="screen-impact">
     <div class="impact-hero">
       <div class="big-num" id="impact-repairs">–</div>
-      <div class="big-label">community fixes logged</div>
+      <div class="big-label">fixes you've logged</div>
       <div class="impact-grid">
         <div class="impact-mini"><div class="n" id="impact-weight">–</div><div class="l">kg kept from landfill</div></div>
         <div class="impact-mini"><div class="n" id="impact-co2">–</div><div class="l">kg CO2 avoided</div></div>
@@ -261,43 +261,25 @@
   </div>
 
   <div class="screen" id="screen-donate">
-    <h2 class="section-title">Where to donate & recycle</h2>
-    <p>Donating functional items that you don't have any use for is a great way to keep our environment clean. When disposing of un-reusable items, there can be certain ways to dispose of things. Down below are some guidelines and restrictions for different items.</p>
-
-    <h2 class="section-title">Still usable? Donate it</h2>
+    <h2 class="section-title">Donate & recycle near you</h2>
     <div class="card">
-      <div class="listing-title">Goodwill</div>
-      <div class="listing-desc">They will accept clothing, shoes, small furniture, electronics, household goods.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://www.goodwill.org/locator/" target="_blank" rel="noopener">Goodwill Locater →</a>
-    </div>
-    <div class="card">
-      <div class="listing-title">Habitat for Humanity ReStore</div>
-      <div class="listing-desc">They accept furniture, appliances, home decor, and building materials.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://www.habitat.org/restores" target="_blank" rel="noopener">Habitat for Humanity Resource →</a>
-    </div>
-
-    <h2 class="section-title">Broken electronics? Recycle it right</h2>
-    <div class="card">
-      <div class="listing-title">Green E-Waste Recycling Center</div>
-      <div class="listing-desc">ISO-certified e-waste recycler in Milpitas — free drop-off for California residents.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://gerecycle.com/" target="_blank" rel="noopener">Visit Green E-Waste →</a>
-    </div>
-    <div class="card">
-      <div class="listing-title">Zero Waste Silicon Valley</div>
-      <div class="listing-desc">Free e-waste drop-off, with free pickup if you have 3 or more items.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://zerowastesv.org/materials/e-waste" target="_blank" rel="noopener">Visit Zero Waste Silicon Valley →</a>
+      <label class="f">Where are you?</label>
+      <input type="text" class="f-input" id="donate-location-input" placeholder="Address, zip code, or city" style="margin-bottom:0;" onkeydown="if(event.key==='Enter') searchDonationPlaces()">
+      <select id="donate-radius-select" class="f-input" style="margin-top:8px; margin-bottom:0;">
+        <option value="10">Within 10 miles</option>
+        <option value="25" selected>Within 25 miles</option>
+        <option value="50">Within 50 miles</option>
+        <option value="100">Within 100 miles</option>
+      </select>
+      <button class="log-btn" style="margin-top:12px;" id="donate-search-btn" onclick="searchDonationPlaces()">🔎 Find donation & e-waste drop-offs</button>
+      <div style="font-size:0.68rem; color:var(--muted); margin-top:6px;">Searches the web live. Still works? Donate it. Broken electronics or batteries? Recycle them right. Worn-out clothes? Recycle the fabric.</div>
     </div>
 
-    <h2 class="section-title">Worn-out clothing? Recycle the fabric</h2>
-    <div class="card">
-      <div class="listing-title">H&M Garment Collection</div>
-      <div class="listing-desc">Accepts clothing and textiles in any condition — even ripped or stained — at store locations.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://www2.hm.com/en_us/customer-service/product-and-quality/garment-collecting-reycling.html" target="_blank" rel="noopener">Learn more at H&M →</a>
-    </div>
-    <div class="card">
-      <div class="listing-title">Uniqlo Garment Recycling</div>
-      <div class="listing-desc">Same as H&M — takes textiles in any condition at store locations.</div>
-      <a class="rc-link" style="display:inline-block; margin-top:6px;" href="https://www.uniqlo.com/us/en/special-feature/sustainability/re-uniqlo" target="_blank" rel="noopener">Learn more at Uniqlo →</a>
+    <div id="donate-results-section" style="display:none;">
+      <h2 class="section-title">Places near you</h2>
+      <div id="donate-status" class="nearest-status" style="margin:0 0 10px;"></div>
+      <div class="log-fix-chips" id="donate-filter" style="margin-top:0;"></div>
+      <div id="donate-list"></div>
     </div>
   </div>
 
@@ -503,7 +485,7 @@ function showToast(msg) {
 }
 
 async function renderHome() {
-  const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
+  const totals = await storageGet("impact:my-totals", false, { total_repairs: 0, total_weight: 0, total_co2: 0 });
   document.getElementById("home-stat-repairs").textContent = totals.total_repairs;
   document.getElementById("home-stat-weight").textContent = totals.total_weight.toFixed(0);
   document.getElementById("home-stat-co2").textContent = totals.total_co2.toFixed(0);
@@ -1308,6 +1290,114 @@ function renderWebEventCards() {
   });
 }
 
+/* =========================================================
+   LIVE WEB SEARCH for donation centers, e-waste recyclers and
+   clothing recycling near an address (Donate tab). Same idea as the
+   event search: the server has Claude search the web, then keeps
+   only real places whose link came from an actual search result.
+   Shown with textContent only, since it comes from other websites.
+   ========================================================= */
+const DONATION_TYPE_INFO = {
+  donate:   { badge: "🎁 Donate: still-usable items", chip: "🎁 Donate" },
+  ewaste:   { badge: "🔌 E-waste: electronics & batteries", chip: "🔌 E-waste" },
+  textiles: { badge: "👕 Clothing recycling: any condition", chip: "👕 Clothing" },
+};
+let donationPlaces = [];
+let donationFilter = "all";
+
+async function searchDonationPlaces() {
+  const location = document.getElementById("donate-location-input").value.trim();
+  const radius = parseInt(document.getElementById("donate-radius-select").value, 10) || 25;
+  const section = document.getElementById("donate-results-section");
+  const status = document.getElementById("donate-status");
+  const list = document.getElementById("donate-list");
+  const btn = document.getElementById("donate-search-btn");
+  section.style.display = "block";
+  list.innerHTML = "";
+  document.getElementById("donate-filter").innerHTML = "";
+  status.classList.remove("error");
+  if (location.length < 3) {
+    status.textContent = "Type an address, zip code, or city first.";
+    status.classList.add("error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "🔎 Searching the web...";
+  status.textContent = `Searching for donation and recycling drop-offs within ${radius} miles of ${location}. This takes about 20–60 seconds.`;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  try {
+    const resp = await fetch(`/api/find-donations?location=${encodeURIComponent(location)}&radius=${radius}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Search failed");
+    donationPlaces = (data.places || []).filter(p => DONATION_TYPE_INFO[p.type]);
+    donationFilter = "all";
+    if (!donationPlaces.length) {
+      status.textContent = `No drop-off places found within ${radius} miles of ${location}. Try a bigger distance or a nearby larger city.`;
+      return;
+    }
+    status.textContent = `${donationPlaces.length} place${donationPlaces.length === 1 ? "" : "s"} found within ${radius} miles of ${location}${data.cached ? " (searched recently)" : ""}. Found on the web, so check hours and what they accept before you go.`;
+    renderDonationFilter();
+    renderDonationCards();
+  } catch (err) {
+    status.textContent = "Couldn't search right now: " + err.message;
+    status.classList.add("error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔎 Find donation & e-waste drop-offs";
+  }
+}
+
+function renderDonationFilter() {
+  const wrap = document.getElementById("donate-filter");
+  wrap.innerHTML = "";
+  const options = [["all", "All", donationPlaces.length]].concat(
+    Object.keys(DONATION_TYPE_INFO).map(k => [k, DONATION_TYPE_INFO[k].chip, donationPlaces.filter(p => p.type === k).length]));
+  options.forEach(([key, label, count]) => {
+    const chip = makeEl("span", "device-chip" + (donationFilter === key ? " selected" : ""), `${label} (${count})`);
+    chip.onclick = () => { donationFilter = key; renderDonationFilter(); renderDonationCards(); };
+    wrap.appendChild(chip);
+  });
+}
+
+function renderDonationCards() {
+  const list = document.getElementById("donate-list");
+  list.innerHTML = "";
+  const shown = donationPlaces.filter(p => donationFilter === "all" || p.type === donationFilter);
+  if (!shown.length) {
+    list.appendChild(makeEl("p", "empty-note", "None of this kind found nearby this time. Try a bigger distance."));
+    return;
+  }
+  shown.forEach(p => {
+    const card = makeEl("div", "event-card");
+    card.appendChild(makeEl("div", "distance-badge", DONATION_TYPE_INFO[p.type].badge));
+    card.appendChild(makeEl("div", "event-name", p.name));
+    card.appendChild(makeEl("div", "event-meta", "📍 " + p.address));
+    if (p.hours) card.appendChild(makeEl("div", "event-meta", "🕒 " + p.hours));
+    if (p.phone) card.appendChild(makeEl("div", "event-meta", "📞 " + p.phone));
+    if (p.accepts) card.appendChild(makeEl("div", "event-notes", "Takes: " + p.accepts));
+    if (p.notes) card.appendChild(makeEl("div", "event-meta", p.notes));
+
+    const footer = makeEl("div", "event-footer");
+    if (/^https?:\/\//i.test(p.source_url)) {
+      const src = makeEl("a", "spots ok", "Website →");
+      src.href = p.source_url; src.target = "_blank"; src.rel = "noopener";
+      src.style.textDecoration = "none";
+      footer.appendChild(src);
+    } else {
+      footer.appendChild(makeEl("span"));
+    }
+    const dir = makeEl("a", "rsvp-btn", "🗺️ Directions");
+    dir.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(p.name + ", " + p.address);
+    dir.target = "_blank"; dir.rel = "noopener";
+    dir.style.cssText = "text-decoration:none; padding:6px 10px; font-size:0.7rem;";
+    footer.appendChild(dir);
+    card.appendChild(footer);
+    list.appendChild(card);
+  });
+}
+
 let selectedFixCategory = null;
 let selectedElectronicsSubtype = null;
 let pendingFixPhoto = null;
@@ -1410,7 +1500,7 @@ function clearFixPhoto() {
 }
 
 async function renderImpact() {
-  const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
+  const totals = await storageGet("impact:my-totals", false, { total_repairs: 0, total_weight: 0, total_co2: 0 });
   document.getElementById("impact-repairs").textContent = totals.total_repairs;
   document.getElementById("impact-weight").textContent = totals.total_weight.toFixed(1) + " kg";
   document.getElementById("impact-co2").textContent = totals.total_co2.toFixed(1) + " kg";
@@ -1458,11 +1548,11 @@ async function logFix() {
     label = selectedFixCategory.toLowerCase();
   }
 
-  const totals = await storageGet("impact:totals", true, { total_repairs: 0, total_weight: 0, total_co2: 0 });
+  const totals = await storageGet("impact:my-totals", false, { total_repairs: 0, total_weight: 0, total_co2: 0 });
   totals.total_repairs += 1;
   totals.total_weight = Math.round((totals.total_weight + impact.weight) * 10) / 10;
   totals.total_co2 = Math.round((totals.total_co2 + impact.co2) * 10) / 10;
-  await storageSet("impact:totals", totals, true);
+  await storageSet("impact:my-totals", totals, false);
 
   const feed = await storageGet("impact:feed", false, []);
   feed.push({ label, weight: impact.weight, co2: impact.co2, ts: Date.now() });
