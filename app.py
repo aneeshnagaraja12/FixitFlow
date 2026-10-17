@@ -396,8 +396,7 @@ def _clean_events(raw_events, seen_hosts, today):
         if not REPAIR_WORDS.search(" ".join([name, desc, venue])):
             continue
         # must come from a page the search really returned
-        host = _host(url)
-        if not host or not any(host == h or host.endswith("." + h) or h.endswith("." + host) for h in seen_hosts):
+        if not _from_real_result(url, seen_hosts):
             continue
         try:
             day = datetime.strptime(str(e.get("date", "")), "%Y-%m-%d").date()
@@ -425,44 +424,16 @@ def _clean_events(raw_events, seen_hosts, today):
     return cleaned[:20]
 
 
-@app.route("/api/find-events", methods=["GET"])
-def find_events():
-    location = re.sub(r"\s+", " ", request.args.get("location", "")).strip()[:80]
-    if len(location) < 3:
-        return jsonify({"error": "Enter a zip code or city."}), 400
-    if not ANTHROPIC_API_KEY:
-        return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
-    try:
-        radius = int(request.args.get("radius", 25))
-    except ValueError:
-        radius = 25
-    if radius not in (10, 25, 50, 100):
-        radius = 25
+class SearchError(Exception):
+    pass
 
-    now = datetime.now(PACIFIC)
-    today = now.date()
-    cache_key = f"events:{location.lower()}:{radius}"
-    cached = kv_get("cache", cache_key)
-    if cached:
-        try:
-            c = json.loads(cached)
-            if time.time() - c["at"] < EVENT_CACHE_HOURS * 3600:
-                events = [ev for ev in c["events"] if ev["date"] >= today.isoformat()]
-                return jsonify({"events": events, "cached": True})
-        except (ValueError, KeyError, TypeError):
-            pass
 
-    count_key = "event-searches:" + today.isoformat()
-    used = int(kv_get("cache", count_key) or 0)
-    if used >= EVENT_SEARCH_DAILY_LIMIT:
-        return jsonify({"error": "Daily web-search limit reached. Try again tomorrow, or use the events list below."}), 429
-    kv_set("cache", count_key, str(used + 1))
-
-    messages = [{
-        "role": "user",
-        "content": (f"Today is {now.strftime('%A, %B %d, %Y')}. Find upcoming community repair events "
-                    f"within {radius} miles ({round(radius * 1.609)} km) of: {location}"),
-    }]
+def _claude_web_search(system, user_msg, max_uses=5):
+    """Ask Claude to answer `user_msg` using live web searches.
+    Returns (Claude's final text, set of website hosts the searches
+    actually returned). That host list is what lets us throw out any
+    result whose link didn't come from a real search result."""
+    messages = [{"role": "user", "content": user_msg}]
     seen_hosts, final_text = set(), ""
     try:
         for _ in range(3):  # a long search can pause; continue it up to 3 times
@@ -476,12 +447,12 @@ def find_events():
                 json={
                     "model": "claude-sonnet-4-6",
                     "max_tokens": 4000,
-                    "system": EVENT_SEARCH_SYSTEM,
+                    "system": system,
                     "messages": messages,
                     "tools": [{
                         "type": "web_search_20250305",
                         "name": "web_search",
-                        "max_uses": 5,
+                        "max_uses": max_uses,
                         # No user_location on purpose: the place the person
                         # typed (any zip/postal code or city, any country)
                         # is in the message, so results aren't pulled
@@ -492,8 +463,7 @@ def find_events():
             )
             data = resp.json()
             if not resp.ok:
-                msg = (data.get("error") or {}).get("message", "Search failed")
-                return jsonify({"error": msg}), 502
+                raise SearchError((data.get("error") or {}).get("message", "Search failed"))
             content = data.get("content", [])
             for block in content:
                 if block.get("type") == "web_search_tool_result" and isinstance(block.get("content"), list):
@@ -509,12 +479,173 @@ def find_events():
                 break
             messages.append({"role": "assistant", "content": content})
     except (requests.RequestException, ValueError) as e:
-        return jsonify({"error": "Search failed: " + str(e)}), 502
-
+        raise SearchError("Search failed: " + str(e))
     seen_hosts.discard("")
+    return final_text, seen_hosts
+
+
+def _from_real_result(url, seen_hosts):
+    host = _host(url)
+    return bool(host) and any(host == h or host.endswith("." + h) or h.endswith("." + host) for h in seen_hosts)
+
+
+def _read_location_and_radius():
+    location = re.sub(r"\s+", " ", request.args.get("location", "")).strip()[:80]
+    try:
+        radius = int(request.args.get("radius", 25))
+    except ValueError:
+        radius = 25
+    if radius not in (10, 25, 50, 100):
+        radius = 25
+    return location, radius
+
+
+def _use_daily_search(kind, limit):
+    """Counts live searches per day so the API credit can't be drained.
+    Returns False once today's limit is used up."""
+    count_key = f"{kind}-searches:" + datetime.now(PACIFIC).date().isoformat()
+    used = int(kv_get("cache", count_key) or 0)
+    if used >= limit:
+        return False
+    kv_set("cache", count_key, str(used + 1))
+    return True
+
+
+@app.route("/api/find-events", methods=["GET"])
+def find_events():
+    location, radius = _read_location_and_radius()
+    if len(location) < 3:
+        return jsonify({"error": "Enter a zip code or city."}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
+
+    now = datetime.now(PACIFIC)
+    today = now.date()
+    cache_key = f"events:{location.lower()}:{radius}"
+    cached = kv_get("cache", cache_key)
+    if cached:
+        try:
+            c = json.loads(cached)
+            if time.time() - c["at"] < EVENT_CACHE_HOURS * 3600:
+                events = [ev for ev in c["events"] if ev["date"] >= today.isoformat()]
+                return jsonify({"events": events, "cached": True})
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    if not _use_daily_search("event", EVENT_SEARCH_DAILY_LIMIT):
+        return jsonify({"error": "Daily web-search limit reached. Try again tomorrow."}), 429
+
+    user_msg = (f"Today is {now.strftime('%A, %B %d, %Y')}. Find upcoming community repair events "
+                f"within {radius} miles ({round(radius * 1.609)} km) of: {location}")
+    try:
+        final_text, seen_hosts = _claude_web_search(EVENT_SEARCH_SYSTEM, user_msg)
+    except SearchError as e:
+        return jsonify({"error": str(e)}), 502
+
     events = _clean_events(_extract_json_array(final_text), seen_hosts, today)
     kv_set("cache", cache_key, json.dumps({"at": time.time(), "events": events}))
     return jsonify({"events": events, "cached": False})
+
+
+# ---------------------------------------------------------------------
+# Live "donation & e-waste drop-offs near me" search -- same idea as the
+# event search above, for the Donate tab. Finds three kinds of places:
+#   donate   - thrift/donation centers that take usable items
+#   ewaste   - places that recycle broken electronics and batteries
+#   textiles - drop-offs that recycle worn-out clothing in any condition
+# Every place must link to a page the web search really returned.
+# Places change much less often than events, so results are cached
+# for 7 days per location + distance.
+# ---------------------------------------------------------------------
+DONATION_SEARCH_DAILY_LIMIT = 40
+DONATION_CACHE_DAYS = 7
+DONATION_TYPES = ("donate", "ewaste", "textiles")
+
+DONATION_SEARCH_SYSTEM = """You find real places where people can donate or responsibly recycle items, for the FixItFlow app.
+
+Find three kinds of places near the location you're given:
+1. "donate": places that accept usable items -- thrift stores and donation centers (Goodwill, Salvation Army, Habitat for Humanity ReStore, St. Vincent de Paul, local charity thrift shops, Buy Nothing / reuse centers).
+2. "ewaste": places that accept broken electronics, batteries, or appliances for proper recycling -- city/county e-waste and household hazardous waste drop-offs, certified e-waste recyclers, and store take-back programs (e.g. Best Buy, Staples) at a specific nearby store.
+3. "textiles": drop-offs that recycle worn-out clothing and fabric in ANY condition -- textile recycling bins or programs, store garment collection (e.g. H&M, Uniqlo) at a specific nearby store.
+
+Do several different searches and cover all three kinds (e.g. "donation center near <place>", "e-waste drop off <city>", "<county> household hazardous waste electronics", "textile recycling <city>").
+
+Rules:
+- Only include places you actually saw on a page in your search results. Never guess or invent a place, address, hours, or what it accepts.
+- Each place must be a specific location with a street address, within the distance you're given. Not a national homepage with no local address.
+- source_url must be the exact URL of the page where you found the place (its own location page is best).
+- Leave "hours" or "phone" as "" if the page doesn't say.
+
+Reply with ONLY a JSON array (no other text, no markdown), up to 15 items, each:
+{"type": "donate" | "ewaste" | "textiles", "name": "...", "address": "street, city", "accepts": "short list of what they take", "notes": "one short sentence: limits, fees, appointment needed, etc. or \"\"", "hours": "" or "Mon-Sat 9am-8pm", "phone": "" or "...", "source_url": "https://..."}
+If you find nothing, reply with []"""
+
+
+def _clean_places(raw_places, seen_hosts):
+    cleaned, seen = [], set()
+    for p in raw_places:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name", "")).strip()[:120]
+        address = str(p.get("address", "")).strip()[:180]
+        url = str(p.get("source_url", "")).strip()
+        kind = str(p.get("type", "")).strip().lower()
+        if not name or not address or not url.startswith(("http://", "https://")):
+            continue
+        if kind not in DONATION_TYPES:
+            continue
+        if not _from_real_result(url, seen_hosts):
+            continue
+        key = (name.lower(), address.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append({
+            "type": kind,
+            "name": name,
+            "address": address,
+            "accepts": str(p.get("accepts", "")).strip()[:200],
+            "notes": str(p.get("notes", "")).strip()[:200],
+            "hours": str(p.get("hours", "")).strip()[:80],
+            "phone": str(p.get("phone", "")).strip()[:30],
+            "source_url": url,
+        })
+    order = {k: i for i, k in enumerate(DONATION_TYPES)}
+    cleaned.sort(key=lambda pl: order[pl["type"]])
+    return cleaned[:20]
+
+
+@app.route("/api/find-donations", methods=["GET"])
+def find_donations():
+    location, radius = _read_location_and_radius()
+    if len(location) < 3:
+        return jsonify({"error": "Enter an address, zip code, or city."}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "ANTHROPIC_API_KEY is not set on the server"}), 500
+
+    cache_key = f"donations:{location.lower()}:{radius}"
+    cached = kv_get("cache", cache_key)
+    if cached:
+        try:
+            c = json.loads(cached)
+            if time.time() - c["at"] < DONATION_CACHE_DAYS * 86400:
+                return jsonify({"places": c["places"], "cached": True})
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    if not _use_daily_search("donation", DONATION_SEARCH_DAILY_LIMIT):
+        return jsonify({"error": "Daily web-search limit reached. Try again tomorrow."}), 429
+
+    user_msg = (f"Find places to donate usable items, recycle e-waste, and recycle worn-out clothing "
+                f"within {radius} miles ({round(radius * 1.609)} km) of: {location}")
+    try:
+        final_text, seen_hosts = _claude_web_search(DONATION_SEARCH_SYSTEM, user_msg)
+    except SearchError as e:
+        return jsonify({"error": str(e)}), 502
+
+    places = _clean_places(_extract_json_array(final_text), seen_hosts)
+    kv_set("cache", cache_key, json.dumps({"at": time.time(), "places": places}))
+    return jsonify({"places": places, "cached": False})
 
 
 # ---------------------------------------------------------------------
